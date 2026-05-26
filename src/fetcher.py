@@ -1,7 +1,9 @@
+import random
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
+from urllib.parse import urlparse
 
 from src.logger import setup_logger
 
@@ -9,14 +11,26 @@ logger = setup_logger(__name__)
 
 DEFAULT_TIMEOUT = 30
 DEFAULT_MAX_PAGES = 50
-DEFAULT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/html, */*",
-}
+
+_ACCEPT_LANGUAGE = "en-US,en;q=0.9"
+
+_USER_AGENTS: list[str] = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+]
+
+_VIEWPORTS: list[dict] = [
+    {"width": 1920, "height": 1080},
+    {"width": 1440, "height": 900},
+    {"width": 1366, "height": 768},
+    {"width": 1536, "height": 864},
+    {"width": 1280, "height": 800},
+]
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -32,7 +46,14 @@ class DataFetcher:
 
     def __init__(self, headers: dict | None = None, timeout: int = DEFAULT_TIMEOUT):
         self.session = requests.Session()
-        self.session.headers.update(headers or DEFAULT_HEADERS)
+        self.session.headers.update(
+            headers
+            or {
+                "User-Agent": random.choice(_USER_AGENTS),
+                "Accept": "application/json, text/html, */*",
+                "Accept-Language": _ACCEPT_LANGUAGE,
+            }
+        )
         self.timeout = timeout
         self.last_fetch_hit_ceiling: bool = False
 
@@ -140,13 +161,34 @@ class BrowserFetcher:
     def __init__(self, proxy: str | None = None, timeout: int = DEFAULT_TIMEOUT * 1000):
         self.proxy = proxy
         self.timeout = timeout
+        self._cookie_jar: dict[str, dict] = {}
 
     def fetch_html(self, url: str) -> str:
         """Launch a headless Chromium browser, apply stealth, and return the page HTML.
 
-        Uses networkidle to wait for JavaScript frameworks to fully load.
+        Stealth hardening applied on every call:
+        - Randomised User-Agent and desktop viewport dimensions.
+        - Accept-Language: en-US,en;q=0.9 injected as an extra HTTP header so
+          Cloudflare / Akamai fingerprints match a real desktop browser.
+        - Per-domain cookie jar: if a prior call to this URL's domain obtained
+          session cookies (e.g., CSRF token, Cloudflare clearance), those cookies
+          are restored via Playwright storage_state so paginated requests are
+          treated as an already-validated session. The jar is updated after every
+          successful load.
+        - Graceful HTML extraction: background network payloads (ads, analytics)
+          frequently prevent networkidle from resolving on travel platforms.
+          The fetcher cascades through three load strategies and always returns
+          whatever HTML the browser has rendered, preparing a clean payload for
+          the Stage 2 AI fallback engine.
         """
-        logger.info("BrowserFetcher navigating to: %s", url)
+        domain = urlparse(url).netloc
+        ua = random.choice(_USER_AGENTS)
+        viewport = random.choice(_VIEWPORTS)
+
+        logger.info(
+            "BrowserFetcher navigating to: %s (ua=%s..., viewport=%dx%d)",
+            url, ua[:40], viewport["width"], viewport["height"],
+        )
 
         launch_options: dict = {"headless": True}
         if self.proxy:
@@ -156,16 +198,48 @@ class BrowserFetcher:
         browser = None
         try:
             browser = playwright.chromium.launch(**launch_options)
-            context = browser.new_context()
-            page = context.new_page()
 
+            context_options: dict = {
+                "user_agent": ua,
+                "viewport": viewport,
+                "extra_http_headers": {"Accept-Language": _ACCEPT_LANGUAGE},
+            }
+            saved_state = self._cookie_jar.get(domain)
+            if saved_state:
+                context_options["storage_state"] = saved_state
+                logger.info("BrowserFetcher: restored session cookies for %s", domain)
+
+            context = browser.new_context(**context_options)
+            page = context.new_page()
             stealth_sync(page)
 
-            page.goto(url, timeout=self.timeout)
-            page.wait_for_load_state("networkidle", timeout=self.timeout)
+            page.goto(url, timeout=self.timeout, wait_until="domcontentloaded")
+
+            # Cascade through load states: networkidle → domcontentloaded → bare
+            try:
+                page.wait_for_load_state("networkidle", timeout=self.timeout)
+            except Exception:
+                logger.warning(
+                    "BrowserFetcher: networkidle timed out for %s "
+                    "(background payloads pending) — extracting available HTML.",
+                    url,
+                )
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=self.timeout // 2)
+                except Exception:
+                    logger.warning(
+                        "BrowserFetcher: domcontentloaded also timed out for %s "
+                        "— returning raw content() for Stage 2 fallback.",
+                        url,
+                    )
 
             html = page.content()
-            logger.info("BrowserFetcher success: %s (%d chars)", url, len(html))
+
+            self._cookie_jar[domain] = context.storage_state()
+            logger.info(
+                "BrowserFetcher success: %s (%d chars, cookies persisted for %s)",
+                url, len(html), domain,
+            )
             return html
         except Exception as exc:
             logger.error("BrowserFetcher error for %s: %s", url, exc)
