@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import ActiveBooking
+from src.db.models import ActiveBooking, RateSnapshot
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -70,6 +70,35 @@ def _push_savings_alert(
         logger.error("Failed to send savings alert for booking %s: %s", booking_id, exc)
 
 
+def _record_rate_snapshot(
+    session: AsyncSession,
+    booking_id: str,
+    provider_url: str,
+    booked_rate: Decimal,
+    observed_rate: Decimal,
+    threshold_met: bool,
+    alert_triggered: bool,
+) -> None:
+    """Stage a rate_snapshots row on the session without committing.
+
+    Called on every rate observation — both alert and non-alert — so the
+    complete price trend is preserved for historical analysis.
+    Caller is responsible for the subsequent session.commit().
+    """
+    savings: Decimal = booked_rate - observed_rate
+    session.add(
+        RateSnapshot(
+            booking_id=booking_id,
+            provider_url=provider_url,
+            observed_rate=observed_rate,
+            booked_rate=booked_rate,
+            savings=savings,
+            threshold_met=threshold_met,
+            alert_triggered=alert_triggered,
+        )
+    )
+
+
 async def upsert_booking(
     session: AsyncSession,
     booking_id: str,
@@ -92,9 +121,14 @@ async def upsert_booking(
     Idempotency: re-upserting the same booking_id updates the row in place —
     no duplicates are ever created.
     """
-    if current_rate is not None and current_rate < booked_rate:
-        savings = booked_rate - current_rate
-        if savings >= target_savings_threshold:
+    _snap_threshold_met: bool = False
+    _snap_alert_triggered: bool = False
+
+    if current_rate is not None:
+        _savings: Decimal = booked_rate - current_rate
+        _snap_threshold_met = _savings >= target_savings_threshold
+        _snap_alert_triggered = _snap_threshold_met and status == "monitoring"
+        if _snap_alert_triggered:
             _push_savings_alert(
                 booking_id=booking_id,
                 client_name=client_name,
@@ -103,6 +137,13 @@ async def upsert_booking(
                 current_rate=current_rate,
                 threshold=target_savings_threshold,
                 webhook_url=alert_webhook_url,
+            )
+        else:
+            logger.info(
+                "[DELTA SILENT] booking=%s booked=$%.2f observed=$%.2f "
+                "savings=$%.2f threshold=$%.2f status=%s — alert suppressed, snapshot staged.",
+                booking_id, float(booked_rate), float(current_rate),
+                float(_savings), float(target_savings_threshold), status,
             )
 
     stmt = pg_insert(ActiveBooking).values(
@@ -131,6 +172,16 @@ async def upsert_booking(
     )
 
     await session.execute(stmt)
+    if current_rate is not None:
+        _record_rate_snapshot(
+            session=session,
+            booking_id=booking_id,
+            provider_url=provider_url,
+            booked_rate=booked_rate,
+            observed_rate=current_rate,
+            threshold_met=_snap_threshold_met,
+            alert_triggered=_snap_alert_triggered,
+        )
     await session.commit()
 
     result = await session.execute(
@@ -192,23 +243,41 @@ async def update_booking_rate(
 
     booked = Decimal(str(booking.booked_rate))
     threshold = Decimal(str(booking.target_savings_threshold))
-    if current_rate < booked:
-        savings = booked - current_rate
-        if savings >= threshold:
-            _push_savings_alert(
-                booking_id=booking_id,
-                client_name=booking.client_name,
-                provider_url=booking.provider_url,
-                booked_rate=booked,
-                current_rate=current_rate,
-                threshold=threshold,
-                webhook_url=alert_webhook_url,
-            )
+    _savings: Decimal = booked - current_rate
+    _threshold_met: bool = _savings >= threshold
+    _should_alert: bool = _threshold_met and booking.status == "monitoring"
+
+    if _should_alert:
+        _push_savings_alert(
+            booking_id=booking_id,
+            client_name=booking.client_name,
+            provider_url=booking.provider_url,
+            booked_rate=booked,
+            current_rate=current_rate,
+            threshold=threshold,
+            webhook_url=alert_webhook_url,
+        )
+    else:
+        logger.info(
+            "[DELTA SILENT] booking=%s booked=$%.2f observed=$%.2f "
+            "savings=$%.2f threshold=$%.2f status=%s — alert suppressed, snapshot staged.",
+            booking_id, float(booked), float(current_rate),
+            float(_savings), float(threshold), booking.status,
+        )
 
     await session.execute(
         update(ActiveBooking)
         .where(ActiveBooking.booking_id == booking_id)
         .values(current_rate=current_rate)
+    )
+    _record_rate_snapshot(
+        session=session,
+        booking_id=booking_id,
+        provider_url=booking.provider_url,
+        booked_rate=booked,
+        observed_rate=current_rate,
+        threshold_met=_threshold_met,
+        alert_triggered=_should_alert,
     )
     await session.commit()
     await session.refresh(booking)
@@ -250,19 +319,37 @@ async def update_rate_by_provider_url(
     for booking in bookings:
         booked = Decimal(str(booking.booked_rate))
         threshold = Decimal(str(booking.target_savings_threshold))
-        if current_rate < booked:
-            savings = booked - current_rate
-            if savings >= threshold:
-                _push_savings_alert(
-                    booking_id=booking.booking_id,
-                    client_name=booking.client_name,
-                    provider_url=booking.provider_url,
-                    booked_rate=booked,
-                    current_rate=current_rate,
-                    threshold=threshold,
-                    webhook_url=alert_webhook_url,
-                )
+        _savings: Decimal = booked - current_rate
+        _threshold_met: bool = _savings >= threshold
+        _should_alert: bool = _threshold_met and booking.status == "monitoring"
 
+        if _should_alert:
+            _push_savings_alert(
+                booking_id=booking.booking_id,
+                client_name=booking.client_name,
+                provider_url=booking.provider_url,
+                booked_rate=booked,
+                current_rate=current_rate,
+                threshold=threshold,
+                webhook_url=alert_webhook_url,
+            )
+        else:
+            logger.info(
+                "[DELTA SILENT] booking=%s booked=$%.2f observed=$%.2f "
+                "savings=$%.2f threshold=$%.2f status=%s — alert suppressed, snapshot staged.",
+                booking.booking_id, float(booked), float(current_rate),
+                float(_savings), float(threshold), booking.status,
+            )
+
+        _record_rate_snapshot(
+            session=session,
+            booking_id=booking.booking_id,
+            provider_url=booking.provider_url,
+            booked_rate=booked,
+            observed_rate=current_rate,
+            threshold_met=_threshold_met,
+            alert_triggered=_should_alert,
+        )
         await session.execute(
             update(ActiveBooking)
             .where(ActiveBooking.booking_id == booking.booking_id)
