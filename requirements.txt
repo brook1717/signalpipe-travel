@@ -17,6 +17,7 @@ markdownify
 beautifulsoup4
 fastapi
 uvicorn[standard]
+celery[redis]
 apify
 apify-client
 streamlit
