@@ -9,7 +9,7 @@ logger = setup_logger(__name__)
 
 # Required fields that must be non-None for a DOM extraction to be valid.
 # If any required field returns None, the AI fallback is triggered.
-REQUIRED_FIELDS = ["title"]
+REQUIRED_FIELDS = ["price"]
 
 
 class DataProcessor:
@@ -107,10 +107,10 @@ class DataProcessor:
     # Stage 2: Cost-aware LLM fallback
     # ------------------------------------------------------------------
 
-    def _extract_with_llm(self, html: str) -> list[dict]:
+    def _extract_with_llm(self, html: str, room_or_ticket_class: str = "") -> list[dict]:
         """Fallback: convert HTML → Markdown (save tokens), then use Gemini
-        with Pydantic structured outputs to extract missing fields."""
-        from src.ai_parser import extract_with_llm, ExtractedData
+        with Pydantic structured outputs to extract travel booking fields."""
+        from src.ai_parser import extract_with_llm, TravelBookingExtraction
 
         self.llm_fallback_triggered = True
 
@@ -125,21 +125,36 @@ class DataProcessor:
             len(html), len(markdown_content),
         )
 
-        results = extract_with_llm(html, schema=ExtractedData)
-        # Stamp every AI-healed record so the DB can audit LLM usage
-        return [{**r.model_dump(), "ai_fallback_used": True} for r in results]
+        results = extract_with_llm(
+            html,
+            room_or_ticket_class=room_or_ticket_class,
+            schema=TravelBookingExtraction,
+        )
+        return [
+            {
+                "price": r.total_price,
+                "currency": r.currency,
+                "is_exact_match": r.is_exact_match,
+                "inventory_status": r.inventory_status,
+                "ai_fallback_used": True,
+            }
+            for r in results
+        ]
 
     # ------------------------------------------------------------------
     # Public: cost-aware two-stage extract
     # ------------------------------------------------------------------
 
-    def extract(self, html: str) -> list[dict]:
+    def extract(self, html: str, room_or_ticket_class: str = "") -> list[dict]:
         """Cost-aware extraction: DOM first, LLM ONLY when required fields are missing.
 
         The LLM is never called unnecessarily. It only fires when:
         1. DOM extraction returns None (no data found at all), OR
         2. DOM extraction returns records but required fields are None
            (indicating a layout change broke the selectors).
+
+        room_or_ticket_class is forwarded to the LLM fallback so the model can
+        verify is_exact_match against the booking's class metadata.
         """
         self.llm_fallback_triggered = False
 
@@ -165,7 +180,7 @@ class DataProcessor:
             )
 
         # Stage 2: LLM fallback (costs money — only when necessary)
-        records = self._extract_with_llm(html)
+        records = self._extract_with_llm(html, room_or_ticket_class=room_or_ticket_class)
         if records:
             return records
 
