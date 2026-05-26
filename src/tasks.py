@@ -19,6 +19,24 @@ def scrape_url_task(
     Retries with exponential backoff on failure (especially 429 Rate Limit).
     proxy_config example: {"proxy": "http://user:pass@ip:port"}
     """
+    import asyncio
+    from src.db.database import async_session
+    from src.db.crud import expire_lapsed_bookings
+
+    async def _deadline_guard() -> int:
+        async with async_session() as session:
+            return await expire_lapsed_bookings(session, url)
+
+    active_count: int = asyncio.run(_deadline_guard())
+    if active_count == 0:
+        logger.info(
+            "[DEADLINE GUARD] scrape_url_task: 0 active bookings remain for %s "
+            "(all cancelled deadlines passed) — scrape bypassed, "
+            "no proxy/compute/token cost incurred.",
+            url,
+        )
+        return {"url": url, "skipped": True, "reason": "all_bookings_expired"}
+
     from src.fetcher import DataFetcher, BrowserFetcher
 
     proxy = proxy_config.get("proxy") if proxy_config else None
@@ -61,6 +79,14 @@ def process_and_store_task(self, fetch_result: dict):
     from src.processor import DataProcessor
     from src.db.database import async_session
     from src.db.crud import update_rate_by_provider_url
+
+    if fetch_result.get("skipped"):
+        logger.info(
+            "process_and_store_task: upstream task skipped url=%s reason=%s — no processing.",
+            fetch_result.get("url"),
+            fetch_result.get("reason"),
+        )
+        return fetch_result
 
     url: str = fetch_result["url"]
     content_type: str = fetch_result["type"]

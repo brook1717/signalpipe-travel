@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Sequence
 
@@ -275,6 +275,72 @@ async def update_rate_by_provider_url(
         float(current_rate), len(bookings), provider_url, status,
     )
     return bookings
+
+
+async def expire_lapsed_bookings(
+    session: AsyncSession,
+    provider_url: str,
+) -> int:
+    """Expire all lapsed bookings for a provider URL and return the still-active count.
+
+    A booking is lapsed when ``current_utc >= cancellation_deadline``.  Lapsed rows
+    are immediately set to 'expired_cancellation_passed' in a single bulk UPDATE so
+    they are permanently excluded from future monitoring cycles.
+
+    Returns the number of bookings that remain within their cancellation window.
+    A return value of 0 means the scrape should be skipped entirely — no proxy
+    bandwidth, compute, or LLM tokens should be spent on this URL.
+    """
+    now: datetime = datetime.now(timezone.utc)
+
+    result = await session.execute(
+        select(ActiveBooking)
+        .where(ActiveBooking.provider_url == provider_url)
+        .where(ActiveBooking.status.in_(["monitoring", "ceiling_truncated"]))
+    )
+    bookings: Sequence[ActiveBooking] = result.scalars().all()
+
+    if not bookings:
+        logger.info(
+            "expire_lapsed_bookings: no active bookings found for %s", provider_url
+        )
+        return 0
+
+    expired_ids: list[str] = []
+    still_active: int = 0
+
+    for booking in bookings:
+        deadline: datetime = booking.cancellation_deadline
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        if now >= deadline:
+            expired_ids.append(booking.booking_id)
+        else:
+            still_active += 1
+
+    if expired_ids:
+        await session.execute(
+            update(ActiveBooking)
+            .where(ActiveBooking.booking_id.in_(expired_ids))
+            .values(status="expired_cancellation_passed")
+        )
+        await session.commit()
+        for bid in expired_ids:
+            logger.info(
+                "[DEADLINE LAPSED] booking_id=%s provider_url=%s "
+                "cancellation_deadline passed — status → expired_cancellation_passed, "
+                "scrape execution bypassed.",
+                bid,
+                provider_url,
+            )
+
+    logger.info(
+        "expire_lapsed_bookings: %s — %d expired, %d still active.",
+        provider_url,
+        len(expired_ids),
+        still_active,
+    )
+    return still_active
 
 
 async def update_booking_status(

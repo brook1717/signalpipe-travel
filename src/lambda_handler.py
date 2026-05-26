@@ -15,7 +15,7 @@ from src.logger import setup_logger
 from src.fetcher import DataFetcher
 from src.processor import DataProcessor
 from src.db.database import async_session
-from src.db.crud import update_rate_by_provider_url
+from src.db.crud import expire_lapsed_bookings, update_rate_by_provider_url
 
 logger = setup_logger(__name__)
 
@@ -38,7 +38,7 @@ def handler(event, context):
     records = event.get("Records", [])
     logger.info("Lambda invoked with %d SQS record(s).", len(records))
 
-    results = {"processed": 0, "delegated_to_fargate": 0, "errors": 0}
+    results = {"processed": 0, "delegated_to_fargate": 0, "errors": 0, "expired": 0}
 
     for record in records:
         try:
@@ -53,6 +53,22 @@ def handler(event, context):
                 "Processing: url=%s, use_browser=%s, job_id=%s",
                 url, use_browser, job_id,
             )
+
+            async def _deadline_guard() -> int:
+                async with async_session() as session:
+                    return await expire_lapsed_bookings(session, url)
+
+            active_count: int = asyncio.run(_deadline_guard())
+            if active_count == 0:
+                logger.info(
+                    "[DEADLINE GUARD] handler: 0 active bookings remain for %s "
+                    "(cancellation_deadline passed) — fetch bypassed, "
+                    "no proxy/compute/token cost incurred. job_id=%s",
+                    url,
+                    job_id,
+                )
+                results["expired"] += 1
+                continue
 
             if use_browser:
                 # Delegate to ECS Fargate for Playwright execution
