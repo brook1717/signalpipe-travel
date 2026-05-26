@@ -14,13 +14,83 @@ from src.logger import setup_logger
 logger = setup_logger(__name__)
 
 
+def _format_alert_message(
+    booking_id: str | None,
+    client_name: str | None,
+    room_or_ticket_class: str | None,
+    booked_rate: Decimal,
+    current_rate: Decimal,
+    savings_amount: Decimal,
+    provider_url: str | None,
+    cancellation_deadline: datetime | None = None,
+) -> str:
+    """Build a rich Markdown alert block optimised for Slack, email, or messaging apps.
+
+    Every field is guarded against None / conversion errors so the function
+    never raises regardless of upstream data quality.
+    """
+    def _s(v: object) -> str:
+        """Safe string: return stripped value or 'N/A' for falsy inputs."""
+        text = str(v).strip() if v is not None else ""
+        return text if text else "N/A"
+
+    def _rate(v: object) -> str:
+        """Format a Decimal/float as a USD amount, falling back to 'N/A'."""
+        try:
+            return f"${float(v):,.2f}"  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return "N/A"
+
+    def _countdown(deadline: datetime | None) -> str:
+        """Human-readable time remaining until the cancellation deadline."""
+        if deadline is None:
+            return "N/A"
+        try:
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+            delta = deadline - datetime.now(timezone.utc)
+            total_secs = delta.total_seconds()
+            if total_secs <= 0:
+                return "⛔ Cancellation window has passed"
+            days = int(delta.days)
+            hours, rem = divmod(int(delta.seconds), 3600)
+            mins = rem // 60
+            if days > 0:
+                return (
+                    f"{days} day{'s' if days != 1 else ''} "
+                    f"{hours} hour{'s' if hours != 1 else ''} remaining"
+                )
+            if hours > 0:
+                return (
+                    f"{hours} hour{'s' if hours != 1 else ''} "
+                    f"{mins} min remaining"
+                )
+            return f"⚠️ {mins} minute{'s' if mins != 1 else ''} remaining — ACT NOW"
+        except Exception:
+            return "N/A"
+
+    return (
+        "🚨 *PRICE PROTECTION ALERT: FINANCIAL DELTA DETECTED* 🚨\n\n"
+        f"*Booking Ref:* {_s(booking_id)}\n"
+        f"*Client Name:* {_s(client_name)}\n"
+        f"*Class:* {_s(room_or_ticket_class)}\n\n"
+        f"*Financial Breakdown:* Originally booked at {_rate(booked_rate)}, "
+        f"current available market rate is {_rate(current_rate)}.\n\n"
+        f"*Actionable Profit:* Save {_rate(savings_amount)} immediately by re-booking.\n\n"
+        f"*Time Left to Act:* {_countdown(cancellation_deadline)}\n\n"
+        f"*Target Provider Link:* {_s(provider_url)}"
+    )
+
+
 def _push_savings_alert(
     booking_id: str,
     client_name: str,
+    room_or_ticket_class: str,
     provider_url: str,
     booked_rate: Decimal,
     current_rate: Decimal,
     threshold: Decimal,
+    cancellation_deadline: datetime | None = None,
     webhook_url: str | None = None,
 ) -> None:
     """Push a savings-opportunity alert to the SQS alert queue.
@@ -40,6 +110,16 @@ def _push_savings_alert(
     from botocore.exceptions import ClientError
 
     savings = booked_rate - current_rate
+    message = _format_alert_message(
+        booking_id=booking_id,
+        client_name=client_name,
+        room_or_ticket_class=room_or_ticket_class,
+        booked_rate=booked_rate,
+        current_rate=current_rate,
+        savings_amount=savings,
+        provider_url=provider_url,
+        cancellation_deadline=cancellation_deadline,
+    )
     alert_payload = {
         "event": "price_protection_savings",
         "booking_id": booking_id,
@@ -51,6 +131,7 @@ def _push_savings_alert(
         "savings_pct": float(round(savings / booked_rate * 100, 2)),
         "threshold_triggered": float(threshold),
         "webhook_url": webhook_url,
+        "message": message,
     }
 
     try:
@@ -132,10 +213,12 @@ async def upsert_booking(
             _push_savings_alert(
                 booking_id=booking_id,
                 client_name=client_name,
+                room_or_ticket_class=room_or_ticket_class,
                 provider_url=provider_url,
                 booked_rate=booked_rate,
                 current_rate=current_rate,
                 threshold=target_savings_threshold,
+                cancellation_deadline=cancellation_deadline,
                 webhook_url=alert_webhook_url,
             )
         else:
@@ -251,10 +334,12 @@ async def update_booking_rate(
         _push_savings_alert(
             booking_id=booking_id,
             client_name=booking.client_name,
+            room_or_ticket_class=booking.room_or_ticket_class,
             provider_url=booking.provider_url,
             booked_rate=booked,
             current_rate=current_rate,
             threshold=threshold,
+            cancellation_deadline=booking.cancellation_deadline,
             webhook_url=alert_webhook_url,
         )
     else:
@@ -327,10 +412,12 @@ async def update_rate_by_provider_url(
             _push_savings_alert(
                 booking_id=booking.booking_id,
                 client_name=booking.client_name,
+                room_or_ticket_class=booking.room_or_ticket_class,
                 provider_url=booking.provider_url,
                 booked_rate=booked,
                 current_rate=current_rate,
                 threshold=threshold,
+                cancellation_deadline=booking.cancellation_deadline,
                 webhook_url=alert_webhook_url,
             )
         else:
