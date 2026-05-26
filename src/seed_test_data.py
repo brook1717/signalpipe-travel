@@ -1,15 +1,17 @@
-"""Local pipeline validation script.
+"""Local pipeline validation script — B2B Travel Price Protection Engine.
 
 Tests every layer of the stack without needing real AWS credentials:
-  1. DB connectivity & table creation
-  2. Idempotent upsert (insert + re-insert same URL)
-  3. Price-drop delta trigger (alert message dispatched to mock SQS alert queue)
-  4. No-alert guard (price increase must NOT dispatch an alert)
-  5. Direct SQS task message round-trip (send → poll → delete)
-  6. DLQ inspection helpers (get_dlq_count, get_dlq_messages)
+  0. DB connectivity & active_bookings table creation
+  1. Booking registration (upsert_booking INSERT path)
+  2. Idempotent re-upsert (same booking_id → no duplicate row)
+  3. Savings alert trigger (rate drop >= threshold → SQS message dispatched)
+  4. Below-threshold guard (small drop < threshold → no alert)
+  5. No-alert guard (price INCREASE must NOT dispatch an alert)
+  6. Status transition (mark a booking as 'rebooked')
+  7. Direct SQS task message round-trip (send → poll → delete)
+  8. DLQ inspection helpers (get_dlq_count, get_dlq_messages)
 
 SQS is mocked in-process with moto — no LocalStack or real AWS needed.
-If SQS_ENDPOINT_URL is set (e.g. http://localhost:4566), LocalStack is used instead.
 
 Usage:
     python -m src.seed_test_data
@@ -21,6 +23,7 @@ import os
 import sys
 import textwrap
 from datetime import datetime, timezone
+from decimal import Decimal
 
 # ── Windows: asyncpg is incompatible with ProactorEventLoop (the default) ────
 if sys.platform == "win32":
@@ -92,31 +95,44 @@ def summary() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Mock data fixtures
+# Travel booking fixtures
 # ─────────────────────────────────────────────────────────────────────────────
 
-MOCK_PRODUCTS = [
+MOCK_BOOKINGS = [
     {
-        "url": "https://competitor-a.com/product/laptop-pro-x",
-        "initial_price": 1_299.99,
-        "updated_price": 999.99,   # DROP  → alert expected
-        "payload": {"title": "Laptop Pro X", "brand": "Apex", "category": "Electronics"},
+        "booking_id": "OAT-2026-001",
+        "client_name": "Dr. Sarah Chen",
+        "provider_url": "https://www.marriott.com/reservation/ratelab/OAT2026001",
+        "booked_rate": Decimal("450.00"),
+        "monitored_rate": Decimal("295.00"),   # DROP $155 > $50 threshold → alert expected
+        "cancellation_deadline": datetime(2026, 7, 15, 23, 59, tzinfo=timezone.utc),
+        "room_or_ticket_class": "Deluxe King, Free Breakfast",
+        "target_savings_threshold": Decimal("50.00"),
     },
     {
-        "url": "https://competitor-b.com/shop/anc-headphones",
-        "initial_price": 249.00,
-        "updated_price": 299.00,   # RISE  → no alert expected
-        "payload": {"title": "ANC Headphones", "brand": "SoundCore", "category": "Audio"},
+        "booking_id": "OAT-2026-002",
+        "client_name": "James Whitfield",
+        "provider_url": "https://www.expedia.com/hotels/booking/detail/OAT2026002",
+        "booked_rate": Decimal("280.00"),
+        "monitored_rate": Decimal("310.00"),   # RISE → no alert expected
+        "cancellation_deadline": datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc),
+        "room_or_ticket_class": "Standard Double, Breakfast Included",
+        "target_savings_threshold": Decimal("50.00"),
     },
     {
-        "url": "https://competitor-c.com/deals/monitor-4k",
-        "initial_price": 599.99,
-        "updated_price": 449.99,   # DROP  → alert expected
-        "payload": {"title": "4K Monitor Ultra", "brand": "ViewMax", "category": "Displays"},
+        "booking_id": "OAT-2026-003",
+        "client_name": "Priya Nair",
+        "provider_url": "https://www.booking.com/hotel/ae/burj-al-arab/OAT2026003",
+        "booked_rate": Decimal("620.00"),
+        "monitored_rate": Decimal("595.00"),   # DROP $25 < $50 threshold → no alert expected
+        "cancellation_deadline": datetime(2026, 6, 30, 18, 0, tzinfo=timezone.utc),
+        "room_or_ticket_class": "Junior Suite, Sea View",
+        "target_savings_threshold": Decimal("50.00"),
     },
 ]
 
-ALERT_WEBHOOK = "https://hooks.zapier.com/hooks/catch/test/abc123/"
+ALERT_WEBHOOK = "https://hooks.zapier.com/hooks/catch/signalpipe/travel-alerts/"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 0 — Database init
@@ -125,9 +141,9 @@ ALERT_WEBHOOK = "https://hooks.zapier.com/hooks/catch/test/abc123/"
 async def step_0_init_db() -> bool:
     section("STEP 0 · Database Connectivity & Table Creation")
     try:
-        from src.db.database import init_db, close_db
+        from src.db.database import init_db
         await init_db()
-        info("Tables created / verified via SQLAlchemy metadata.create_all.")
+        info("active_bookings table created / verified via SQLAlchemy metadata.create_all.")
         check("PostgreSQL connection", True)
         return True
     except Exception as exc:
@@ -137,136 +153,143 @@ async def step_0_init_db() -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 1 — Seed initial prices (first upsert = INSERT)
+# Step 1 — Register bookings (first upsert = INSERT)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def step_1_seed_initial_prices() -> None:
-    section("STEP 1 · Seed Initial Prices (INSERT path)")
+async def step_1_register_bookings() -> None:
+    section("STEP 1 · Register Bookings (INSERT path)")
     from src.db.database import async_session
-    from src.db.crud import upsert_record
+    from src.db.crud import upsert_booking
     from sqlalchemy import select
-    from src.db.models import ScrapedRecord
+    from src.db.models import ActiveBooking
 
     async with async_session() as session:
-        for product in MOCK_PRODUCTS:
-            record = await upsert_record(
+        for bk in MOCK_BOOKINGS:
+            await upsert_booking(
                 session=session,
-                url=product["url"],
-                payload=product["payload"],
-                price=product["initial_price"],
-                ai_fallback_used=False,
+                booking_id=bk["booking_id"],
+                client_name=bk["client_name"],
+                provider_url=bk["provider_url"],
+                booked_rate=bk["booked_rate"],
+                current_rate=None,
+                cancellation_deadline=bk["cancellation_deadline"],
+                room_or_ticket_class=bk["room_or_ticket_class"],
+                target_savings_threshold=bk["target_savings_threshold"],
             )
             info(
-                f"Inserted  {product['url'][-40:]}  "
-                f"price=${product['initial_price']:.2f}"
+                f"Registered  {bk['booking_id']}  "
+                f"client={bk['client_name']}  "
+                f"booked=${bk['booked_rate']:.2f}"
             )
 
-    # Verify all 3 rows exist
     async with async_session() as session:
-        for product in MOCK_PRODUCTS:
+        for bk in MOCK_BOOKINGS:
             result = await session.execute(
-                select(ScrapedRecord).where(
-                    ScrapedRecord.source_url == product["url"]
-                )
+                select(ActiveBooking).where(ActiveBooking.booking_id == bk["booking_id"])
             )
             row = result.scalar_one_or_none()
             check(
-                f"Row exists: {product['url'][-45:]}",
-                row is not None and row.price == product["initial_price"],
-                f"stored price={row.price if row else 'NOT FOUND'}",
+                f"Booking registered: {bk['booking_id']}",
+                row is not None and row.booked_rate == bk["booked_rate"],
+                f"stored booked_rate={row.booked_rate if row else 'NOT FOUND'}",
             )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 2 — Idempotency check (re-insert same URL → no duplicate)
+# Step 2 — Idempotency check (re-upsert same booking_id → no duplicate)
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def step_2_idempotency() -> None:
-    section("STEP 2 · Idempotent Upsert (re-insert same URL)")
+    section("STEP 2 · Idempotent Upsert (re-register same booking_id)")
     from src.db.database import async_session
-    from src.db.crud import upsert_record
+    from src.db.crud import upsert_booking
     from sqlalchemy import func, select
-    from src.db.models import ScrapedRecord
+    from src.db.models import ActiveBooking
 
-    target = MOCK_PRODUCTS[0]
+    target = MOCK_BOOKINGS[0]
 
     async with async_session() as session:
-        # Re-insert with same price
-        await upsert_record(
+        await upsert_booking(
             session=session,
-            url=target["url"],
-            payload={**target["payload"], "extra_field": "re-scraped"},
-            price=target["initial_price"],
+            booking_id=target["booking_id"],
+            client_name=target["client_name"],
+            provider_url=target["provider_url"],
+            booked_rate=target["booked_rate"],
+            current_rate=None,
+            cancellation_deadline=target["cancellation_deadline"],
+            room_or_ticket_class=target["room_or_ticket_class"],
+            target_savings_threshold=target["target_savings_threshold"],
         )
 
-    # Row count must still be exactly the number we seeded
     async with async_session() as session:
         count = await session.scalar(
-            select(func.count()).select_from(ScrapedRecord)
+            select(func.count()).select_from(ActiveBooking)
         )
-    info(f"Total rows in scraped_records: {count}")
+    info(f"Total rows in active_bookings: {count}")
     check(
         "No duplicate row created on re-upsert",
-        count == len(MOCK_PRODUCTS),
-        f"expected={len(MOCK_PRODUCTS)}, actual={count}",
+        count == len(MOCK_BOOKINGS),
+        f"expected={len(MOCK_BOOKINGS)}, actual={count}",
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 3 — Price-drop delta trigger (with mocked SQS alert queue)
+# Step 3 — Savings alert trigger & guard (with mocked SQS alert queue)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def step_3_price_drop_delta(
+async def step_3_savings_alert_trigger(
     alert_queue_url: str,
     sqs_client,
 ) -> None:
-    section("STEP 3 · Price-Drop Delta Trigger")
+    section("STEP 3 · Savings Alert Trigger & Guards")
 
     from src.db.database import async_session
-    from src.db.crud import upsert_record
+    from src.db.crud import upsert_booking
     from sqlalchemy import select
-    from src.db.models import ScrapedRecord
+    from src.db.models import ActiveBooking
 
-    expected_drops  = [p for p in MOCK_PRODUCTS if p["updated_price"] < p["initial_price"]]
-    expected_stable = [p for p in MOCK_PRODUCTS if p["updated_price"] >= p["initial_price"]]
+    # OAT-2026-001: $450 → $295 = $155 savings (> $50) → alert expected
+    # OAT-2026-002: $280 → $310 (RISE)                 → no alert expected
+    # OAT-2026-003: $620 → $595 = $25 savings (< $50)  → no alert expected
+    expected_alerts = [bk for bk in MOCK_BOOKINGS
+                       if bk["monitored_rate"] < bk["booked_rate"]
+                       and bk["booked_rate"] - bk["monitored_rate"] >= bk["target_savings_threshold"]]
+    expected_silent = [bk for bk in MOCK_BOOKINGS if bk not in expected_alerts]
 
-    info(f"Products with price DROP  (alert expected): {len(expected_drops)}")
-    info(f"Products with price RISE  (no alert):       {len(expected_stable)}")
+    info(f"Bookings triggering alert (savings >= threshold): {len(expected_alerts)}")
+    info(f"Bookings staying silent  (rise or sub-threshold): {len(expected_silent)}")
 
-    # Ensure crud reads the mock alert queue URL
     os.environ["SQS_ALERT_QUEUE_URL"] = alert_queue_url
-
-    # --- Purge alert queue before the test ---
     sqs_client.purge_queue(QueueUrl=alert_queue_url)
 
-    # --- Run upserts with updated prices ---
     async with async_session() as session:
-        for product in MOCK_PRODUCTS:
-            await upsert_record(
+        for bk in MOCK_BOOKINGS:
+            await upsert_booking(
                 session=session,
-                url=product["url"],
-                payload=product["payload"],
-                price=product["updated_price"],
-                ai_fallback_used=False,
+                booking_id=bk["booking_id"],
+                client_name=bk["client_name"],
+                provider_url=bk["provider_url"],
+                booked_rate=bk["booked_rate"],
+                current_rate=bk["monitored_rate"],
+                cancellation_deadline=bk["cancellation_deadline"],
+                room_or_ticket_class=bk["room_or_ticket_class"],
+                target_savings_threshold=bk["target_savings_threshold"],
                 alert_webhook_url=ALERT_WEBHOOK,
             )
 
-    # --- Verify DB prices were updated ---
+    # Verify current_rate stored correctly
     async with async_session() as session:
-        for product in MOCK_PRODUCTS:
+        for bk in MOCK_BOOKINGS:
             result = await session.execute(
-                select(ScrapedRecord).where(
-                    ScrapedRecord.source_url == product["url"]
-                )
+                select(ActiveBooking).where(ActiveBooking.booking_id == bk["booking_id"])
             )
             row = result.scalar_one()
             check(
-                f"Price updated in DB: {product['url'][-40:]}",
-                row.price == product["updated_price"],
-                f"expected={product['updated_price']}, stored={row.price}",
+                f"current_rate stored: {bk['booking_id']}",
+                row.current_rate == bk["monitored_rate"],
+                f"expected={bk['monitored_rate']}, stored={row.current_rate}",
             )
 
-    # --- Count alert messages dispatched ---
     resp = sqs_client.receive_message(
         QueueUrl=alert_queue_url,
         MaxNumberOfMessages=10,
@@ -276,92 +299,87 @@ async def step_3_price_drop_delta(
     alert_bodies = [json.loads(m["Body"]) for m in alerts]
 
     check(
-        f"Alert queue received {len(expected_drops)} message(s)",
-        len(alerts) == len(expected_drops),
-        f"expected={len(expected_drops)}, received={len(alerts)}",
+        f"Alert queue received exactly {len(expected_alerts)} message(s)",
+        len(alerts) == len(expected_alerts),
+        f"expected={len(expected_alerts)}, received={len(alerts)}",
     )
 
     for body in alert_bodies:
-        is_drop_event = body.get("event") == "price_drop"
-        is_actually_cheaper = body.get("new_price", 0) < body.get("old_price", 0)
-        has_webhook = body.get("webhook_url") == ALERT_WEBHOOK
+        is_savings_event  = body.get("event") == "price_protection_savings"
+        is_actually_lower = body.get("current_rate", 0) < body.get("booked_rate", 0)
+        meets_threshold   = body.get("savings_amount", 0) >= body.get("threshold_triggered", 0)
+        has_webhook       = body.get("webhook_url") == ALERT_WEBHOOK
         check(
-            f"Alert payload valid for {body.get('url', '')[-40:]}",
-            is_drop_event and is_actually_cheaper and has_webhook,
+            f"Alert payload valid for booking {body.get('booking_id', '')!r}",
+            is_savings_event and is_actually_lower and meets_threshold and has_webhook,
             (
                 f"event={body.get('event')}, "
-                f"old={body.get('old_price')}, "
-                f"new={body.get('new_price')}, "
-                f"drop%={body.get('drop_pct')}%, "
+                f"booked=${body.get('booked_rate')}, "
+                f"current=${body.get('current_rate')}, "
+                f"savings=${body.get('savings_amount')} ({body.get('savings_pct')}%), "
                 f"webhook={'✓' if has_webhook else '✗'}"
             ),
         )
         info(
-            f"  └─ {body.get('url', '')[-45:]}  "
-            f"${body.get('old_price')} → ${body.get('new_price')}  "
-            f"(-{body.get('drop_pct')}%)"
+            f"  └─ {body.get('booking_id')}  "
+            f"client={body.get('client_name')}  "
+            f"${body.get('booked_rate')} → ${body.get('current_rate')}  "
+            f"(saves ${body.get('savings_amount')})"
         )
 
-    # --- Verify the RISING price triggered NO alert ---
-    rising_urls = {p["url"] for p in expected_stable}
-    alert_urls  = {b.get("url") for b in alert_bodies}
-    false_alerts = rising_urls & alert_urls
+    silent_ids  = {bk["booking_id"] for bk in expected_silent}
+    alerted_ids = {b.get("booking_id") for b in alert_bodies}
+    false_alerts = silent_ids & alerted_ids
     check(
-        "No alert fired for price INCREASE",
+        "No alert fired for RISE or sub-threshold drop",
         len(false_alerts) == 0,
         f"false alerts for: {false_alerts}" if false_alerts else "clean",
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 4 — AI fallback flag persisted to DB
+# Step 4 — Status transition
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def step_4_ai_fallback_flag() -> None:
-    section("STEP 4 · AI Fallback Flag Persisted")
+async def step_4_status_transition() -> None:
+    section("STEP 4 · Status Transition (monitoring → rebooked)")
     from src.db.database import async_session
-    from src.db.crud import upsert_record
+    from src.db.crud import update_booking_status
     from sqlalchemy import select
-    from src.db.models import ScrapedRecord
+    from src.db.models import ActiveBooking
 
-    target = MOCK_PRODUCTS[2]
+    target = MOCK_BOOKINGS[0]
 
     async with async_session() as session:
-        await upsert_record(
+        await update_booking_status(
             session=session,
-            url=target["url"],
-            payload={**target["payload"], "healed": True},
-            price=target["initial_price"],
-            ai_fallback_used=True,
+            booking_id=target["booking_id"],
+            status="rebooked",
         )
 
     async with async_session() as session:
         result = await session.execute(
-            select(ScrapedRecord).where(
-                ScrapedRecord.source_url == target["url"]
-            )
+            select(ActiveBooking).where(ActiveBooking.booking_id == target["booking_id"])
         )
         row = result.scalar_one()
 
     check(
-        "ai_fallback_used=True stored in DB",
-        row.ai_fallback_used is True,
-        f"stored value: {row.ai_fallback_used}",
+        f"Status updated to 'rebooked' for {target['booking_id']}",
+        row.status == "rebooked",
+        f"stored status: {row.status}",
     )
 
-    # Check that the other records still have ai_fallback_used=False
+    # Verify other bookings are unaffected
     async with async_session() as session:
         result = await session.execute(
-            select(ScrapedRecord).where(
-                ScrapedRecord.source_url == MOCK_PRODUCTS[0]["url"]
-            )
+            select(ActiveBooking).where(ActiveBooking.booking_id == MOCK_BOOKINGS[1]["booking_id"])
         )
         other = result.scalar_one()
 
     check(
-        "ai_fallback_used=False not contaminated on other records",
-        other.ai_fallback_used is False,
-        f"stored value: {other.ai_fallback_used}",
+        f"Other booking {MOCK_BOOKINGS[1]['booking_id']} status unchanged",
+        other.status == "monitoring",
+        f"stored status: {other.status}",
     )
 
 
@@ -377,17 +395,15 @@ def step_5_sqs_round_trip(main_queue_url: str) -> None:
 
     sqs = SQSManager(queue_url=main_queue_url)
 
-    # Send
-    test_url = MOCK_PRODUCTS[0]["url"]
+    test_url = MOCK_BOOKINGS[0]["provider_url"]
     msg_id = sqs.send_message(
         url=test_url,
         use_browser=False,
         job_id="seed-test-job-001",
-        metadata={"frequency": "Hourly", "delivery": "Webhook"},
+        metadata={"booking_id": MOCK_BOOKINGS[0]["booking_id"]},
     )
     check("send_message returned a MessageId", bool(msg_id), f"MessageId={msg_id}")
 
-    # Poll
     messages = sqs.poll_messages(max_messages=1, wait_time=0)
     check("poll_messages received 1 message", len(messages) == 1)
 
@@ -409,11 +425,9 @@ def step_5_sqs_round_trip(main_queue_url: str) -> None:
         )
         info(f"Payload preview: {json.dumps({k: v for k, v in body.items() if not k.startswith('_')})}")
 
-        # Delete
         deleted = sqs.delete_message(body["_receipt_handle"])
         check("delete_message succeeded", deleted)
 
-    # Verify queue is empty
     empty = sqs.poll_messages(max_messages=1, wait_time=0)
     check("Queue is empty after deletion", len(empty) == 0)
 
@@ -425,25 +439,23 @@ def step_5_sqs_round_trip(main_queue_url: str) -> None:
 def step_6_dlq_inspection(dlq_url: str, sqs_client) -> None:
     section("STEP 6 · DLQ Inspection Helpers")
 
-    # Manually push a simulated dead-letter message
     dead_payload = {
-        "url": "https://dead-competitor.com/404-product",
+        "url": MOCK_BOOKINGS[2]["provider_url"],
         "use_browser": False,
-        "job_id": "failed-job-999",
-        "error": "HTTP 404 Not Found",
+        "booking_id": MOCK_BOOKINGS[2]["booking_id"],
+        "error": "HTTP 503 Service Unavailable",
     }
     sqs_client.send_message(
         QueueUrl=dlq_url,
         MessageBody=json.dumps(dead_payload),
         MessageGroupId="dlq-test",
     )
-    info("Manually injected 1 failed message into DLQ.")
+    info("Manually injected 1 failed scrape message into DLQ.")
 
     os.environ["SQS_DLQ_URL"] = dlq_url
     from src.queue_manager import SQSManager
     sqs = SQSManager()
 
-    # get_dlq_count
     count = sqs.get_dlq_count(dlq_url=dlq_url)
     check(
         "get_dlq_count returns >= 1",
@@ -451,7 +463,6 @@ def step_6_dlq_inspection(dlq_url: str, sqs_client) -> None:
         f"returned: {count}",
     )
 
-    # get_dlq_messages
     messages = sqs.get_dlq_messages(max_messages=10, dlq_url=dlq_url)
     check(
         "get_dlq_messages returns the injected message",
@@ -468,6 +479,7 @@ def step_6_dlq_inspection(dlq_url: str, sqs_client) -> None:
         )
         info(
             f"Dead URL: {m.get('url')}  "
+            f"booking_id={m.get('booking_id')}  "
             f"receive_count={m.get('_receive_count')}"
         )
 
@@ -481,9 +493,9 @@ async def _run_db_steps() -> None:
     if not ok:
         warn("Skipping DB-dependent steps — fix the DB connection first.")
         return
-    await step_1_seed_initial_prices()
+    await step_1_register_bookings()
     await step_2_idempotency()
-    await step_4_ai_fallback_flag()
+    await step_4_status_transition()
 
 
 def _run_sqs_steps_with_mock() -> None:
@@ -500,7 +512,6 @@ def _run_sqs_steps_with_mock() -> None:
     with mock_aws():
         client = boto3.client("sqs", region_name="us-east-1")
 
-        # Create queues inside the mock context
         main_q = client.create_queue(
             QueueName="scraper-tasks.fifo",
             Attributes={
@@ -525,25 +536,22 @@ def _run_sqs_steps_with_mock() -> None:
         info(f"[moto] Alert queue: {alert_q}")
         info(f"[moto] DLQ:         {dlq}")
 
-        # price-drop delta (async, must be run inside this sync context)
-        asyncio.run(_run_price_drop_step(alert_q, client))
+        asyncio.run(_run_savings_alert_step(alert_q, client))
 
-        # synchronous SQS steps
         step_5_sqs_round_trip(main_q)
         step_6_dlq_inspection(dlq, client)
 
 
-async def _run_price_drop_step(alert_queue_url: str, sqs_client) -> None:
-    await step_3_price_drop_delta(alert_queue_url, sqs_client)
+async def _run_savings_alert_step(alert_queue_url: str, sqs_client) -> None:
+    await step_3_savings_alert_trigger(alert_queue_url, sqs_client)
 
 
 def main() -> None:
     print(f"\n{BOLD}{CYAN}{'═' * 62}{RESET}")
-    print(f"{BOLD}{CYAN}  SignalPipe — Local Pipeline Validation{RESET}")
+    print(f"{BOLD}{CYAN}  SignalPipe — Travel Price Protection Validation{RESET}")
     print(f"{CYAN}  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}{RESET}")
     print(f"{BOLD}{CYAN}{'═' * 62}{RESET}")
 
-    # DB-dependent steps (always use real local postgres)
     asyncio.run(_run_db_steps())
 
     # Dispose the engine pool so asyncpg connections bound to the first
@@ -551,7 +559,6 @@ def main() -> None:
     from src.db.database import engine as _engine
     _engine.sync_engine.dispose()
 
-    # SQS steps — moto in-process mock (no real AWS needed)
     section("SQS TESTS  (moto in-process mock)")
     info("Using moto mock_aws — no real AWS credentials or LocalStack needed.")
     _run_sqs_steps_with_mock()

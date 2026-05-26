@@ -1,49 +1,55 @@
-import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime
+from decimal import Decimal
+from typing import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import ScrapedRecord
+from src.db.models import ActiveBooking
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
 
-def _compute_hash(url: str, payload: dict) -> str:
-    """Generate a deterministic SHA-256 hash from the URL and payload."""
-    raw = json.dumps({"url": url, "payload": payload}, sort_keys=True)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-
-def _push_price_drop_alert(
-    url: str,
-    old_price: float,
-    new_price: float,
+def _push_savings_alert(
+    booking_id: str,
+    client_name: str,
+    provider_url: str,
+    booked_rate: Decimal,
+    current_rate: Decimal,
+    threshold: Decimal,
     webhook_url: str | None = None,
 ) -> None:
-    """Push a price-drop alert message to the SQS alert queue.
+    """Push a savings-opportunity alert to the SQS alert queue.
 
-    Called synchronously (boto3 is blocking) from within the async upsert
-    because the SQS call itself is very fast and does not need awaiting.
+    Called synchronously (boto3 is blocking) because SQS calls are fast
+    and do not benefit from awaiting.
     """
     alert_queue_url = os.environ.get("SQS_ALERT_QUEUE_URL", "")
     if not alert_queue_url:
-        logger.warning("SQS_ALERT_QUEUE_URL not set — price-drop alert not sent for %s", url)
+        logger.warning(
+            "SQS_ALERT_QUEUE_URL not set — savings alert not sent for booking %s",
+            booking_id,
+        )
         return
 
     import boto3
     from botocore.exceptions import ClientError
 
+    savings = booked_rate - current_rate
     alert_payload = {
-        "event": "price_drop",
-        "url": url,
-        "old_price": old_price,
-        "new_price": new_price,
-        "drop_amount": round(old_price - new_price, 4),
-        "drop_pct": round((old_price - new_price) / old_price * 100, 2),
+        "event": "price_protection_savings",
+        "booking_id": booking_id,
+        "client_name": client_name,
+        "provider_url": provider_url,
+        "booked_rate": float(booked_rate),
+        "current_rate": float(current_rate),
+        "savings_amount": float(round(savings, 2)),
+        "savings_pct": float(round(savings / booked_rate * 100, 2)),
+        "threshold_triggered": float(threshold),
         "webhook_url": webhook_url,
     }
 
@@ -54,66 +60,73 @@ def _push_price_drop_alert(
             MessageBody=json.dumps(alert_payload),
         )
         logger.info(
-            "[PRICE DROP] %.4f → %.4f (%.2f%%) for %s — alert queued.",
-            old_price, new_price, alert_payload["drop_pct"], url,
+            "[SAVINGS ALERT] booking=%s client=%s booked=$%.2f current=$%.2f "
+            "savings=$%.2f (%.2f%%)",
+            booking_id, client_name,
+            float(booked_rate), float(current_rate),
+            float(savings), alert_payload["savings_pct"],
         )
     except ClientError as exc:
-        logger.error("Failed to send price-drop alert for %s: %s", url, exc)
+        logger.error("Failed to send savings alert for booking %s: %s", booking_id, exc)
 
 
-async def upsert_record(
+async def upsert_booking(
     session: AsyncSession,
-    url: str,
-    payload: dict,
-    status: str = "success",
-    price: float | None = None,
-    ai_fallback_used: bool = False,
+    booking_id: str,
+    client_name: str,
+    provider_url: str,
+    booked_rate: Decimal,
+    current_rate: Decimal | None,
+    cancellation_deadline: datetime,
+    room_or_ticket_class: str,
+    status: str = "monitoring",
+    target_savings_threshold: Decimal = Decimal("50.00"),
     alert_webhook_url: str | None = None,
-) -> ScrapedRecord:
-    """Insert or update a scraped record using PostgreSQL ON CONFLICT.
+) -> ActiveBooking:
+    """Insert or update a travel booking record using PostgreSQL ON CONFLICT.
 
-    Delta Trigger: if a previous price exists and the new price is lower,
-    a price-drop alert is pushed to the SQS alert queue before committing.
+    Savings Trigger: if current_rate is provided and
+    booked_rate - current_rate >= target_savings_threshold, a savings alert
+    is dispatched to SQS before the row is committed.
 
-    Idempotency: re-scraping the same URL only updates the row in place —
+    Idempotency: re-upserting the same booking_id updates the row in place —
     no duplicates are ever created.
     """
-    now = datetime.now(timezone.utc)
-    data_hash = _compute_hash(url, payload)
+    if current_rate is not None and current_rate < booked_rate:
+        savings = booked_rate - current_rate
+        if savings >= target_savings_threshold:
+            _push_savings_alert(
+                booking_id=booking_id,
+                client_name=client_name,
+                provider_url=provider_url,
+                booked_rate=booked_rate,
+                current_rate=current_rate,
+                threshold=target_savings_threshold,
+                webhook_url=alert_webhook_url,
+            )
 
-    # --- Delta check: read existing price before overwriting ---
-    existing_result = await session.execute(
-        select(ScrapedRecord.price).where(ScrapedRecord.source_url == url)
-    )
-    existing_price: float | None = existing_result.scalar_one_or_none()
-
-    if (
-        price is not None
-        and existing_price is not None
-        and price < existing_price
-    ):
-        _push_price_drop_alert(url, existing_price, price, alert_webhook_url)
-
-    # --- Upsert ---
-    stmt = pg_insert(ScrapedRecord).values(
-        source_url=url,
-        data_hash=data_hash,
-        payload=payload,
-        price=price,
-        scraped_at=now,
+    stmt = pg_insert(ActiveBooking).values(
+        booking_id=booking_id,
+        client_name=client_name,
+        provider_url=provider_url,
+        booked_rate=booked_rate,
+        current_rate=current_rate,
+        cancellation_deadline=cancellation_deadline,
+        target_savings_threshold=target_savings_threshold,
+        room_or_ticket_class=room_or_ticket_class,
         status=status,
-        ai_fallback_used=ai_fallback_used,
     )
-
     stmt = stmt.on_conflict_do_update(
-        index_elements=["source_url"],
+        index_elements=["booking_id"],
         set_={
-            "payload": stmt.excluded.payload,
-            "data_hash": stmt.excluded.data_hash,
-            "price": stmt.excluded.price,
-            "scraped_at": stmt.excluded.scraped_at,
+            "client_name": stmt.excluded.client_name,
+            "provider_url": stmt.excluded.provider_url,
+            "booked_rate": stmt.excluded.booked_rate,
+            "current_rate": stmt.excluded.current_rate,
+            "cancellation_deadline": stmt.excluded.cancellation_deadline,
+            "target_savings_threshold": stmt.excluded.target_savings_threshold,
+            "room_or_ticket_class": stmt.excluded.room_or_ticket_class,
             "status": stmt.excluded.status,
-            "ai_fallback_used": stmt.excluded.ai_fallback_used,
         },
     )
 
@@ -121,11 +134,169 @@ async def upsert_record(
     await session.commit()
 
     result = await session.execute(
-        select(ScrapedRecord).where(ScrapedRecord.source_url == url)
+        select(ActiveBooking).where(ActiveBooking.booking_id == booking_id)
     )
-    record = result.scalar_one()
+    booking = result.scalar_one()
     logger.info(
-        "Upserted record: %s (hash=%s, price=%s, ai_fallback=%s)",
-        url, data_hash[:12], price, ai_fallback_used,
+        "Upserted booking %s (client=%s, status=%s, booked=$%.2f, current=%s)",
+        booking_id, client_name, status, float(booked_rate),
+        f"${float(current_rate):.2f}" if current_rate is not None else "N/A",
     )
-    return record
+    return booking
+
+
+async def get_booking(
+    session: AsyncSession,
+    booking_id: str,
+) -> ActiveBooking | None:
+    """Fetch a single booking by its primary key. Returns None if not found."""
+    result = await session.execute(
+        select(ActiveBooking).where(ActiveBooking.booking_id == booking_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_bookings(
+    session: AsyncSession,
+    status: str | None = None,
+) -> Sequence[ActiveBooking]:
+    """Return all bookings, optionally filtered by status.
+
+    Valid status values: 'monitoring', 'ceiling_truncated',
+    'expired_cancellation_passed', 'rebooked'.
+    """
+    stmt = select(ActiveBooking)
+    if status is not None:
+        stmt = stmt.where(ActiveBooking.status == status)
+    result = await session.execute(stmt)
+    return result.scalars().all()
+
+
+async def update_booking_rate(
+    session: AsyncSession,
+    booking_id: str,
+    current_rate: Decimal,
+    alert_webhook_url: str | None = None,
+) -> ActiveBooking | None:
+    """Update the current_rate for a single booking by booking_id.
+
+    Savings Trigger: fires an alert if
+    booked_rate - current_rate >= target_savings_threshold.
+
+    Returns the updated booking, or None if booking_id does not exist.
+    """
+    booking = await get_booking(session, booking_id)
+    if booking is None:
+        logger.warning("update_booking_rate: booking %s not found.", booking_id)
+        return None
+
+    booked = Decimal(str(booking.booked_rate))
+    threshold = Decimal(str(booking.target_savings_threshold))
+    if current_rate < booked:
+        savings = booked - current_rate
+        if savings >= threshold:
+            _push_savings_alert(
+                booking_id=booking_id,
+                client_name=booking.client_name,
+                provider_url=booking.provider_url,
+                booked_rate=booked,
+                current_rate=current_rate,
+                threshold=threshold,
+                webhook_url=alert_webhook_url,
+            )
+
+    await session.execute(
+        update(ActiveBooking)
+        .where(ActiveBooking.booking_id == booking_id)
+        .values(current_rate=current_rate)
+    )
+    await session.commit()
+    await session.refresh(booking)
+    logger.info(
+        "Rate updated for booking %s: booked=$%.2f → current=$%.2f",
+        booking_id, float(booked), float(current_rate),
+    )
+    return booking
+
+
+async def update_rate_by_provider_url(
+    session: AsyncSession,
+    provider_url: str,
+    current_rate: Decimal,
+    status: str = "monitoring",
+    alert_webhook_url: str | None = None,
+) -> Sequence[ActiveBooking]:
+    """Update current_rate for all active bookings matching a provider URL.
+
+    Used by the scraper pipeline to push freshly-scraped rates back into all
+    bookings that share the same provider page.  Only rows whose status is
+    'monitoring' or 'ceiling_truncated' are eligible for rate updates.
+
+    Returns the list of updated bookings.
+    """
+    result = await session.execute(
+        select(ActiveBooking)
+        .where(ActiveBooking.provider_url == provider_url)
+        .where(ActiveBooking.status.in_(["monitoring", "ceiling_truncated"]))
+    )
+    bookings: Sequence[ActiveBooking] = result.scalars().all()
+
+    if not bookings:
+        logger.warning(
+            "update_rate_by_provider_url: no active bookings found for %s", provider_url
+        )
+        return []
+
+    for booking in bookings:
+        booked = Decimal(str(booking.booked_rate))
+        threshold = Decimal(str(booking.target_savings_threshold))
+        if current_rate < booked:
+            savings = booked - current_rate
+            if savings >= threshold:
+                _push_savings_alert(
+                    booking_id=booking.booking_id,
+                    client_name=booking.client_name,
+                    provider_url=booking.provider_url,
+                    booked_rate=booked,
+                    current_rate=current_rate,
+                    threshold=threshold,
+                    webhook_url=alert_webhook_url,
+                )
+
+        await session.execute(
+            update(ActiveBooking)
+            .where(ActiveBooking.booking_id == booking.booking_id)
+            .values(current_rate=current_rate, status=status)
+        )
+
+    await session.commit()
+    logger.info(
+        "Rate updated to $%.2f for %d booking(s) at %s (status=%s)",
+        float(current_rate), len(bookings), provider_url, status,
+    )
+    return bookings
+
+
+async def update_booking_status(
+    session: AsyncSession,
+    booking_id: str,
+    status: str,
+) -> ActiveBooking | None:
+    """Update the status of a booking.
+
+    Returns the updated booking, or None if booking_id does not exist.
+    """
+    booking = await get_booking(session, booking_id)
+    if booking is None:
+        logger.warning("update_booking_status: booking %s not found.", booking_id)
+        return None
+
+    await session.execute(
+        update(ActiveBooking)
+        .where(ActiveBooking.booking_id == booking_id)
+        .values(status=status)
+    )
+    await session.commit()
+    await session.refresh(booking)
+    logger.info("Status updated for booking %s: → %s", booking_id, status)
+    return booking

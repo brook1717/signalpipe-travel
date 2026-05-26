@@ -7,8 +7,14 @@ logger = setup_logger(__name__)
 
 
 @app.task(bind=True, max_retries=3)
-def scrape_url_task(self, url: str, use_browser: bool = True, proxy_config: dict | None = None):
-    """Fetch a URL and chain the result into process_and_store_task.
+def scrape_url_task(
+    self,
+    url: str,
+    use_browser: bool = True,
+    proxy_config: dict | None = None,
+    max_pages: int = 50,
+):
+    """Fetch a provider URL and chain the result into process_and_store_task.
 
     Retries with exponential backoff on failure (especially 429 Rate Limit).
     proxy_config example: {"proxy": "http://user:pass@ip:port"}
@@ -44,18 +50,20 @@ def scrape_url_task(self, url: str, use_browser: bool = True, proxy_config: dict
 
 @app.task(bind=True, max_retries=3)
 def process_and_store_task(self, fetch_result: dict):
-    """Process fetched content and persist to the database.
+    """Process fetched content and update current_rate for matching bookings.
 
-    Receives output from scrape_url_task. Runs the two-stage processor
-    (DOM extraction → LLM fallback) for HTML content, then upserts into PostgreSQL.
+    Extracts the first numeric 'price' key from scraped records, then calls
+    update_rate_by_provider_url to push the rate to all active_bookings rows
+    whose provider_url matches the scraped URL.
     """
     import asyncio
+    from decimal import Decimal
     from src.processor import DataProcessor
     from src.db.database import async_session
-    from src.db.crud import upsert_record
+    from src.db.crud import update_rate_by_provider_url
 
-    url = fetch_result["url"]
-    content_type = fetch_result["type"]
+    url: str = fetch_result["url"]
+    content_type: str = fetch_result["type"]
     content = fetch_result["content"]
 
     logger.info("process_and_store_task: url=%s, type=%s", url, content_type)
@@ -66,22 +74,36 @@ def process_and_store_task(self, fetch_result: dict):
         if content_type == "html":
             records = processor.extract(content)
         else:
-            # JSON content — already structured
             records = content if isinstance(content, list) else [content]
 
         logger.info("process_and_store_task: extracted %d records from %s", len(records), url)
 
-        # Persist each record to the database
-        async def _persist():
+        current_rate: Decimal | None = None
+        for record in records:
+            raw_price = record.get("price") if isinstance(record, dict) else None
+            if raw_price is not None:
+                try:
+                    current_rate = Decimal(str(raw_price))
+                    break
+                except Exception:
+                    continue
+
+        if current_rate is None:
+            logger.warning(
+                "process_and_store_task: no 'price' key found in records for %s "
+                "— rate update skipped.",
+                url,
+            )
+            return {"url": url, "bookings_updated": 0}
+
+        async def _persist() -> int:
             async with async_session() as session:
-                for record in records:
-                    payload = record if isinstance(record, dict) else record.model_dump()
-                    await upsert_record(session, url, payload)
+                updated = await update_rate_by_provider_url(session, url, current_rate)
+                return len(updated)
 
-        asyncio.run(_persist())
-        logger.info("process_and_store_task: stored %d records for %s", len(records), url)
-
-        return {"url": url, "records_stored": len(records)}
+        count = asyncio.run(_persist())
+        logger.info("process_and_store_task: updated rate for %d booking(s) at %s", count, url)
+        return {"url": url, "bookings_updated": count}
 
     except Exception as exc:
         backoff = 2 ** self.request.retries * 10

@@ -16,36 +16,51 @@ logger = setup_logger(__name__)
 
 
 async def _save_ceiling_records(source_url: str, raw_data: list[dict]) -> None:
-    """Persist partial records to PostgreSQL when the pagination ceiling is hit.
+    """Flag active bookings as ceiling_truncated when the pagination ceiling is hit.
 
-    Each record is upserted individually so that any already-stored rows are
-    updated rather than duplicated. Failures are logged but never raise — the
-    local export must still complete.
+    Extracts the first numeric 'price' value from raw_data and calls
+    update_rate_by_provider_url with status='ceiling_truncated'.  Failures are
+    logged but never raise — the local export must still complete.
     """
     try:
+        from decimal import Decimal
         from src.db.database import async_session
-        from src.db.crud import upsert_record
+        from src.db.crud import update_rate_by_provider_url
+
+        current_rate: Decimal | None = None
+        for record in raw_data:
+            raw_price = record.get("price")
+            if raw_price is not None:
+                try:
+                    current_rate = Decimal(str(raw_price))
+                    break
+                except Exception:
+                    continue
+
+        if current_rate is None:
+            logger.warning(
+                "[SAFETY CEILING] No 'price' key found in scraped records for %s "
+                "— rate update skipped.",
+                source_url,
+            )
+            return
 
         async with async_session() as session:
-            for record in raw_data:
-                try:
-                    url = record.get("url") or source_url
-                    await upsert_record(
-                        session=session,
-                        url=url,
-                        payload=record,
-                        status="ceiling_truncated",
-                    )
-                except Exception as exc:
-                    logger.warning("Failed to upsert ceiling record %s: %s", url, exc)
+            updated = await update_rate_by_provider_url(
+                session=session,
+                provider_url=source_url,
+                current_rate=current_rate,
+                status="ceiling_truncated",
+            )
 
         logger.info(
-            "[SAFETY CEILING] %d partial records persisted to PostgreSQL for %s.",
-            len(raw_data), source_url,
+            "[SAFETY CEILING] Rate $%.2f flagged as ceiling_truncated "
+            "for %d booking(s) at %s.",
+            float(current_rate), len(updated), source_url,
         )
     except Exception as exc:
         logger.error(
-            "[SAFETY CEILING] PostgreSQL save failed for %s: %s. "
+            "[SAFETY CEILING] Rate update failed for %s: %s. "
             "Records will still be exported locally.",
             source_url, exc,
         )

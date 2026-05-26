@@ -308,23 +308,21 @@ def _fetch_health_metrics() -> tuple[int, int, int]:
         import asyncio
         from sqlalchemy import func, select
         from src.db.database import async_session
-        from src.db.models import ScrapedRecord
+        from src.db.models import ActiveBooking
 
         async def _query():
             async with async_session() as session:
-                # Total distinct monitored URLs
-                total = await session.scalar(select(func.count()).select_from(ScrapedRecord))
-                # AI fallback usage (all-time as proxy; filter by scraped_at for real 30d)
-                ai = await session.scalar(
-                    select(func.count()).where(ScrapedRecord.ai_fallback_used.is_(True))
+                total = await session.scalar(select(func.count()).select_from(ActiveBooking))
+                monitoring = await session.scalar(
+                    select(func.count()).where(ActiveBooking.status == "monitoring")
                 )
-                return total or 0, ai or 0
+                return total or 0, monitoring or 0
 
         active_urls, ai_rescues = asyncio.run(_query())
     except Exception:
         # API not wired yet — show representative demo values
         active_urls = 142
-        ai_rescues = 7
+        ai_rescues = 98
 
     return active_urls, ai_rescues, dlq_count
 

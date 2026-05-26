@@ -15,7 +15,7 @@ from src.logger import setup_logger
 from src.fetcher import DataFetcher
 from src.processor import DataProcessor
 from src.db.database import async_session
-from src.db.crud import upsert_record
+from src.db.crud import update_rate_by_provider_url
 
 logger = setup_logger(__name__)
 
@@ -75,7 +75,9 @@ def handler(event, context):
 
 
 def _process_standard_fetch(url: str, proxy: str | None, metadata: dict):
-    """Fetch URL with DataFetcher, process, and persist to database."""
+    """Fetch URL with DataFetcher, extract rate, and update matching bookings."""
+    from decimal import Decimal
+
     logger.info("Standard fetch (Lambda): %s", url)
 
     fetcher = DataFetcher()
@@ -83,8 +85,7 @@ def _process_standard_fetch(url: str, proxy: str | None, metadata: dict):
         fetcher.session.proxies.update({"http": proxy, "https": proxy})
         logger.info("Proxy applied: %s", proxy)
 
-    # Fetch
-    params = {}
+    params: dict = {}
     search = metadata.get("search")
     if search:
         params["search"] = search
@@ -92,7 +93,6 @@ def _process_standard_fetch(url: str, proxy: str | None, metadata: dict):
     response = fetcher.fetch_data(url, params=params)
     data = response.json()
 
-    # Normalize to list
     if isinstance(data, dict):
         records = data.get("results") or data.get("data") or data.get("items") or [data]
     elif isinstance(data, list):
@@ -102,20 +102,32 @@ def _process_standard_fetch(url: str, proxy: str | None, metadata: dict):
 
     logger.info("Fetched %d records from %s.", len(records), url)
 
-    # Process
     processor = DataProcessor()
     processor.load_data(records)
     processor.clean_data()
     processor.deduplicate()
 
-    # Persist to database
-    async def _persist():
-        async with async_session() as session:
-            for record in processor.df.to_dict(orient="records"):
-                await upsert_record(session, url, record)
+    current_rate: Decimal | None = None
+    for record in processor.df.to_dict(orient="records"):
+        raw_price = record.get("price")
+        if raw_price is not None:
+            try:
+                current_rate = Decimal(str(raw_price))
+                break
+            except Exception:
+                continue
 
-    asyncio.run(_persist())
-    logger.info("Stored %d records for %s.", len(processor.df), url)
+    if current_rate is None:
+        logger.warning("No 'price' key found in records for %s — rate update skipped.", url)
+        return
+
+    async def _persist() -> int:
+        async with async_session() as session:
+            updated = await update_rate_by_provider_url(session, url, current_rate)
+            return len(updated)
+
+    count = asyncio.run(_persist())
+    logger.info("Updated rate $%.2f for %d booking(s) at %s.", float(current_rate), count, url)
 
 
 def _launch_fargate_task(message_body: dict):

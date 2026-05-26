@@ -1,67 +1,39 @@
-import uuid
-from datetime import datetime, timezone
+from decimal import Decimal
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy import Column, DateTime, Index, Numeric, String, Text
+from sqlalchemy.orm import DeclarativeBase
 
 
 class Base(DeclarativeBase):
     pass
 
 
-class ScrapeJob(Base):
-    """Tracks a batch scraping job dispatched via the API."""
+class ActiveBooking(Base):
+    """Tracks an agency's active travel booking for price protection monitoring."""
 
-    __tablename__ = "scrape_jobs"
+    __tablename__ = "active_bookings"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    status = Column(String, nullable=False, default="pending")
-    created_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+    booking_id = Column(String, primary_key=True)
+    client_name = Column(String, nullable=False)
+    provider_url = Column(Text, nullable=False)
+    booked_rate = Column(Numeric(12, 4), nullable=False)
+    current_rate = Column(Numeric(12, 4), nullable=True)
+    cancellation_deadline = Column(DateTime(timezone=True), nullable=False)
+    target_savings_threshold = Column(
+        Numeric(12, 2), nullable=False, default=Decimal("50.00")
     )
-    updated_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
-    total_urls = Column(Integer, nullable=False, default=0)
-    completed_urls = Column(Integer, nullable=False, default=0)
-    schema_hint = Column(Text, nullable=True)
-
-    records = relationship("ScrapedRecord", back_populates="job", lazy="selectin")
-
-    def __repr__(self) -> str:
-        return f"<ScrapeJob(id={self.id}, status='{self.status}', {self.completed_urls}/{self.total_urls})>"
-
-
-class ScrapedRecord(Base):
-    """Stores scraped data with idempotency guarantees."""
-
-    __tablename__ = "scraped_records"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    job_id = Column(UUID(as_uuid=True), ForeignKey("scrape_jobs.id"), nullable=True, index=True)
-    source_url = Column(String, nullable=False, unique=True, index=True)
-    data_hash = Column(String, nullable=False, unique=True)
-    payload = Column(JSONB, nullable=False)
-    price = Column(Float, nullable=True)
-    scraped_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-    )
-    status = Column(String, nullable=False, default="success")
-    ai_fallback_used = Column(Boolean, nullable=False, default=False)
-
-    job = relationship("ScrapeJob", back_populates="records")
+    room_or_ticket_class = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="monitoring")
 
     __table_args__ = (
-        Index("ix_scraped_records_data_hash", "data_hash", unique=True),
+        Index("ix_active_bookings_provider_url", "provider_url"),
+        Index("ix_active_bookings_status", "status"),
     )
 
     def __repr__(self) -> str:
-        return f"<ScrapedRecord(id={self.id}, source_url='{self.source_url}', status='{self.status}')>"
+        return (
+            f"<ActiveBooking(booking_id={self.booking_id!r}, "
+            f"client={self.client_name!r}, "
+            f"status={self.status!r}, "
+            f"booked=${self.booked_rate}, current=${self.current_rate})>"
+        )
