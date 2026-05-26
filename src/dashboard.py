@@ -1,15 +1,14 @@
-"""SignalPipe: Competitor Intelligence Dashboard
+"""SignalPipe: Travel Price Protection Dashboard
 
-Streamlit frontend for the Multi-Source Serverless Extraction Engine.
+Streamlit frontend for the B2B Travel Price Protection Engine.
 
 Run:
     streamlit run src/dashboard.py
 """
 
-import hashlib
 import hmac
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import requests
@@ -26,8 +25,8 @@ _AUTH_ENABLED  = bool(_AUTH_USERNAME and _AUTH_PASSWORD)
 # ─────────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="SignalPipe | Competitor Intelligence",
-    page_icon="⚡",
+    page_title="SignalPipe | Travel Price Protection",
+    page_icon="✈️",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -39,138 +38,55 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-        /* Global font & background */
-        html, body, [class*="css"] {
-            font-family: 'Inter', 'Segoe UI', sans-serif;
-        }
-
-        /* Header block */
-        .sp-header {
-            padding: 1.5rem 0 0.5rem 0;
-        }
+        html, body, [class*="css"] { font-family: 'Inter', 'Segoe UI', sans-serif; }
+        .sp-header { padding: 1.5rem 0 0.5rem 0; }
         .sp-logo {
-            font-size: 2.4rem;
-            font-weight: 800;
-            letter-spacing: -1px;
-            background: linear-gradient(90deg, #7C3AED, #2563EB);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            font-size: 2.4rem; font-weight: 800; letter-spacing: -1px;
+            background: linear-gradient(90deg, #0369A1, #0EA5E9);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         }
-        .sp-tagline {
-            font-size: 0.95rem;
-            color: #6B7280;
-            margin-top: -0.3rem;
-            letter-spacing: 0.04em;
-        }
-
-        /* Metric cards */
-        [data-testid="stMetricValue"] {
-            font-size: 2.2rem !important;
-            font-weight: 700 !important;
-        }
+        .sp-tagline { font-size: 0.95rem; color: #6B7280; margin-top: -0.3rem; letter-spacing: 0.04em; }
+        [data-testid="stMetricValue"] { font-size: 2.2rem !important; font-weight: 700 !important; }
         [data-testid="stMetricLabel"] {
-            font-size: 0.8rem !important;
-            font-weight: 600 !important;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: #6B7280 !important;
+            font-size: 0.8rem !important; font-weight: 600 !important;
+            text-transform: uppercase; letter-spacing: 0.06em; color: #6B7280 !important;
         }
-
-        /* Form & inputs */
         [data-testid="stForm"] {
-            background: rgba(124, 58, 237, 0.04);
-            border: 1px solid rgba(124, 58, 237, 0.15);
-            border-radius: 12px;
-            padding: 1.5rem;
+            background: rgba(3, 105, 161, 0.04);
+            border: 1px solid rgba(3, 105, 161, 0.15);
+            border-radius: 12px; padding: 1.5rem;
         }
-
-        /* Submit button */
         [data-testid="stFormSubmitButton"] button {
-            background: linear-gradient(90deg, #7C3AED, #2563EB) !important;
-            color: white !important;
-            border: none !important;
-            border-radius: 8px !important;
-            font-weight: 600 !important;
-            padding: 0.5rem 1.5rem !important;
-            transition: opacity 0.2s ease;
+            background: linear-gradient(90deg, #0369A1, #0EA5E9) !important;
+            color: white !important; border: none !important;
+            border-radius: 8px !important; font-weight: 600 !important;
+            padding: 0.5rem 1.5rem !important; transition: opacity 0.2s ease;
         }
-        [data-testid="stFormSubmitButton"] button:hover {
-            opacity: 0.88;
-        }
-
-        /* Section subheaders */
+        [data-testid="stFormSubmitButton"] button:hover { opacity: 0.88; }
         .sp-section {
-            font-size: 1rem;
-            font-weight: 700;
-            color: #374151;
-            border-left: 3px solid #7C3AED;
-            padding-left: 0.6rem;
+            font-size: 1rem; font-weight: 700; color: #374151;
+            border-left: 3px solid #0369A1; padding-left: 0.6rem;
             margin: 1.5rem 0 0.8rem 0;
         }
-
-        /* Status badges */
         .badge-ok   { color: #059669; font-weight: 700; }
         .badge-warn { color: #D97706; font-weight: 700; }
         .badge-dead { color: #DC2626; font-weight: 700; }
-
-        /* DLQ dataframe subtle stripe */
-        [data-testid="stDataFrame"] {
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        /* Tab labels */
-        [data-testid="stTab"] {
-            font-weight: 600;
-            font-size: 0.92rem;
-        }
-
-        /* Hide Streamlit watermark */
+        [data-testid="stDataFrame"] { border-radius: 8px; overflow: hidden; }
+        [data-testid="stTab"] { font-weight: 600; font-size: 0.92rem; }
         #MainMenu, footer { visibility: hidden; }
-
-        /* ── Login card ─────────────────────────────────────────── */
-        .login-wrapper {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 70vh;
-        }
         .login-card {
-            background: #ffffff;
-            border: 1px solid #E5E7EB;
-            border-radius: 16px;
-            padding: 2.5rem 2.8rem;
-            width: 100%;
-            max-width: 400px;
+            background: #ffffff; border: 1px solid #E5E7EB;
+            border-radius: 16px; padding: 2.5rem 2.8rem;
+            width: 100%; max-width: 400px;
             box-shadow: 0 4px 24px rgba(0,0,0,0.07);
         }
         .login-logo {
-            font-size: 2rem;
-            font-weight: 800;
-            letter-spacing: -1px;
-            background: linear-gradient(90deg, #7C3AED, #2563EB);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-align: center;
-            margin-bottom: 0.25rem;
+            font-size: 2rem; font-weight: 800; letter-spacing: -1px;
+            background: linear-gradient(90deg, #0369A1, #0EA5E9);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            text-align: center; margin-bottom: 0.25rem;
         }
-        .login-subtitle {
-            text-align: center;
-            color: #6B7280;
-            font-size: 0.88rem;
-            margin-bottom: 1.8rem;
-        }
-        .login-error {
-            background: #FEF2F2;
-            border: 1px solid #FECACA;
-            border-radius: 8px;
-            color: #DC2626;
-            font-size: 0.88rem;
-            padding: 0.6rem 1rem;
-            margin-bottom: 1rem;
-            text-align: center;
-        }
+        .login-subtitle { text-align: center; color: #6B7280; font-size: 0.88rem; margin-bottom: 1.8rem; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -196,12 +112,10 @@ def _render_login_page() -> None:
     _, center, _ = st.columns([1, 1.6, 1])
     with center:
         st.markdown(
-            """
-            <div class="login-card">
-                <div class="login-logo">⚡ SignalPipe</div>
-                <div class="login-subtitle">Competitor Intelligence Platform</div>
-            </div>
-            """,
+            '<div class="login-card">'
+            '<div class="login-logo">✈️ SignalPipe</div>'
+            '<div class="login-subtitle">Travel Price Protection Platform</div>'
+            '</div>',
             unsafe_allow_html=True,
         )
 
@@ -252,11 +166,11 @@ _require_auth()
 st.markdown(
     """
     <div class="sp-header">
-        <div class="sp-logo">⚡ SignalPipe</div>
+        <div class="sp-logo">✈️ SignalPipe</div>
         <div class="sp-tagline">
-            Competitor Intelligence &nbsp;·&nbsp;
-            Event-Driven Serverless Extraction &nbsp;·&nbsp;
-            AI Self-Healing Parser
+            Travel Price Protection &nbsp;·&nbsp;
+            Live Rate Monitoring &nbsp;·&nbsp;
+            Savings Alert Engine
         </div>
     </div>
     """,
@@ -269,123 +183,77 @@ st.divider()
 # Data helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _fetch_health_metrics() -> tuple[int, int, int]:
-    """Return (active_urls, ai_rescues_30d, dlq_count).
-
-    Tries the live API first; falls back to SQS directly for the DLQ count;
-    uses mock values for metrics that require a DB aggregate endpoint not yet
-    exposed.
-    """
-    active_urls = 0
-    ai_rescues = 0
-    dlq_count = 0
-
-    # --- Active URLs: call /jobs summary if available ---
+def _deadline_countdown(deadline_str: str) -> str:
+    """Return a human-readable countdown from an ISO deadline string."""
     try:
-        resp = requests.get(f"{API_BASE_URL}/health/metrics", timeout=5)
+        dt = datetime.fromisoformat(deadline_str.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = dt - datetime.now(timezone.utc)
+        if delta.total_seconds() <= 0:
+            return "⛔ EXPIRED"
+        days = delta.days
+        hours, rem = divmod(delta.seconds, 3600)
+        mins = rem // 60
+        if days > 0:
+            return f"⏳ {days}d {hours}h"
+        if hours > 0:
+            return f"⚠️ {hours}h {mins}m"
+        return f"🔴 {mins}m"
+    except Exception:
+        return "—"
+
+
+def _savings_display(booked: float | None, current: float | None) -> str:
+    """Format the savings amount and percentage between booked and current rate."""
+    if booked is None or current is None:
+        return "—"
+    savings = booked - current
+    pct = (savings / booked * 100) if booked else 0
+    sign = "+" if savings >= 0 else ""
+    return f"{sign}${savings:,.2f} ({sign}{pct:.1f}%)"
+
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _fetch_bookings(status_filter: str | None = None) -> list[dict]:
+    """Fetch bookings from the API, optionally filtered by status."""
+    try:
+        params: dict = {}
+        if status_filter:
+            params["status"] = status_filter
+        resp = requests.get(f"{API_BASE_URL}/bookings", params=params, timeout=8)
         if resp.status_code == 200:
-            data = resp.json()
-            active_urls = data.get("active_urls", 0)
-            ai_rescues = data.get("ai_fallback_rescues_30d", 0)
-            dlq_count = data.get("dlq_count", 0)
-            return active_urls, ai_rescues, dlq_count
+            return resp.json()
     except Exception:
         pass
-
-    # --- DLQ count: query SQS directly ---
-    try:
-        from src.queue_manager import SQSManager
-        sqs = SQSManager()
-        dlq_count = sqs.get_dlq_count()
-        if dlq_count < 0:
-            dlq_count = 0
-    except Exception:
-        dlq_count = 0
-
-    # --- Remaining metrics: DB aggregate query ---
-    try:
-        import asyncio
-        from sqlalchemy import func, select
-        from src.db.database import async_session
-        from src.db.models import ActiveBooking
-
-        async def _query():
-            async with async_session() as session:
-                total = await session.scalar(select(func.count()).select_from(ActiveBooking))
-                monitoring = await session.scalar(
-                    select(func.count()).where(ActiveBooking.status == "monitoring")
-                )
-                return total or 0, monitoring or 0
-
-        active_urls, ai_rescues = asyncio.run(_query())
-    except Exception:
-        # API not wired yet — show representative demo values
-        active_urls = 142
-        ai_rescues = 98
-
-    return active_urls, ai_rescues, dlq_count
+    return []
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _fetch_dlq_messages() -> list[dict]:
-    """Return a list of DLQ message dicts for display.
-
-    Tries the live SQS DLQ; returns illustrative mock rows if not configured.
-    """
-    try:
-        from src.queue_manager import SQSManager
-        sqs = SQSManager()
-        messages = sqs.get_dlq_messages(max_messages=10)
-        if messages:
-            return messages
-    except Exception:
-        pass
-
-    # Illustrative mock data — shown when SQS is not yet connected
-    return [
-        {
-            "url": "https://competitor-a.com/pricing",
-            "use_browser": False,
-            "job_id": "job_a1b2c3",
-            "_receive_count": "3",
-            "_sent_timestamp": "1716635400000",
-            "error": "HTTP 404 Not Found",
-        },
-        {
-            "url": "https://competitor-b.com/products/laptops",
-            "use_browser": True,
-            "job_id": "job_d4e5f6",
-            "_receive_count": "3",
-            "_sent_timestamp": "1716621000000",
-            "error": "Playwright timeout after 30s",
-        },
-    ]
-
-
-def _format_dlq_dataframe(messages: list[dict]) -> pd.DataFrame:
-    """Clean and rename DLQ message fields for display."""
-    rows = []
-    for m in messages:
-        ts = m.get("_sent_timestamp")
-        try:
-            sent_at = datetime.fromtimestamp(
-                int(ts) / 1000, tz=timezone.utc
-            ).strftime("%Y-%m-%d %H:%M UTC") if ts else "—"
-        except (ValueError, TypeError):
-            sent_at = "—"
-
-        rows.append({
-            "URL": m.get("url", "—"),
-            "Job ID": m.get("job_id", "—"),
-            "Browser?": "✓" if m.get("use_browser") else "✗",
-            "Attempts": m.get("_receive_count", "3"),
-            "Failure Reason": m.get("error", "Max receive count exceeded"),
-            "First Seen": sent_at,
-        })
-
-    df = pd.DataFrame(rows)
-    return df
+@st.cache_data(ttl=45, show_spinner=False)
+def _fetch_summary_metrics() -> tuple[int, int, int]:
+    """Return (total_monitoring, expiring_within_48h, savings_opportunities)."""
+    bookings = _fetch_bookings("monitoring")
+    total = len(bookings)
+    now = datetime.now(timezone.utc)
+    expiring_soon = 0
+    savings_detected = 0
+    for b in bookings:
+        dl = b.get("cancellation_deadline")
+        if dl:
+            try:
+                dt = datetime.fromisoformat(dl.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                secs = (dt - now).total_seconds()
+                if 0 < secs <= 48 * 3600:
+                    expiring_soon += 1
+            except Exception:
+                pass
+        br = b.get("booked_rate")
+        cr = b.get("current_rate")
+        if br is not None and cr is not None and float(br) > float(cr):
+            savings_detected += 1
+    return total, expiring_soon, savings_detected
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -425,232 +293,409 @@ with st.sidebar:
 # Tabs
 # ─────────────────────────────────────────────────────────────────────────────
 
-tab_deploy, tab_health = st.tabs(["🚀  Deploy Monitor", "📊  System Health"])
+tab_monitor, tab_add, tab_batch = st.tabs([
+    "📋  Live Monitor",
+    "➕  Add Booking",
+    "📂  Batch Upload",
+])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — Deploy Monitor
+# TAB 1 — Live Monitor
 # ══════════════════════════════════════════════════════════════════════════════
 
-with tab_deploy:
-    st.markdown(
-        '<div class="sp-section">Configure Monitoring Pipeline</div>',
-        unsafe_allow_html=True,
-    )
+with tab_monitor:
 
-    with st.form("deploy_pipeline_form", clear_on_submit=False):
-
-        urls_input = st.text_area(
-            "Target URLs",
-            placeholder=(
-                "https://competitor-a.com/pricing\n"
-                "https://competitor-b.com/products\n"
-                "https://competitor-c.com/shop"
-            ),
-            help="Enter one URL per line. Each URL becomes an independently monitored scraping task.",
-            height=160,
-            label_visibility="visible",
-        )
-        st.caption("One URL per line. The pipeline will scrape each independently.")
-
-        col_freq, col_delivery = st.columns(2)
-        with col_freq:
-            frequency = st.selectbox(
-                "Monitoring Frequency",
-                ["Hourly", "Daily"],
-                help="How often the pipeline re-scrapes and checks for price changes.",
-            )
-        with col_delivery:
-            delivery_method = st.selectbox(
-                "Delivery Method",
-                ["Webhook", "Telegram"],
-                help="Where to push alerts when a price drop is detected.",
-            )
-
-        destination = st.text_input(
-            "Destination Address / Webhook URL",
-            placeholder=(
-                "https://hooks.zapier.com/hooks/catch/..."
-                if delivery_method == "Webhook"
-                else "@your_telegram_bot_token or chat_id"
-            ),
-            help=(
-                "Zapier, Make.com, or any POST endpoint for Webhook mode; "
-                "Bot token for Telegram mode."
-            ),
-        )
-
-        st.markdown("<br/>", unsafe_allow_html=True)
-        submitted = st.form_submit_button(
-            "🚀  Deploy Monitoring Pipeline",
-            type="primary",
-            use_container_width=True,
-        )
-
-    if submitted:
-        urls = [u.strip() for u in urls_input.strip().splitlines() if u.strip()]
-
-        if not urls:
-            st.error("⚠️  Please enter at least one URL before deploying.")
-        elif not destination.strip():
-            st.error("⚠️  A destination address is required for alert delivery.")
-        else:
-            payload = {
-                "urls": urls,
-                "use_browser": False,
-                "schema_hint": (
-                    f"frequency:{frequency},"
-                    f"delivery:{delivery_method},"
-                    f"destination:{destination.strip()}"
-                ),
-            }
-
-            with st.spinner("Dispatching to SQS pipeline…"):
-                try:
-                    resp = requests.post(
-                        f"{API_BASE_URL}/jobs",
-                        json=payload,
-                        timeout=15,
-                    )
-                    if resp.status_code == 201:
-                        data = resp.json()
-                        st.success(
-                            f"✅  Pipeline deployed successfully!\n\n"
-                            f"**Job ID:** `{data['job_id']}`  \n"
-                            f"**URLs queued:** {data['total_urls']}  \n"
-                            f"**Frequency:** {frequency}  \n"
-                            f"**Alerts → {delivery_method}:** {destination.strip()}"
-                        )
-                        st.balloons()
-                    else:
-                        st.error(
-                            f"❌  API returned **{resp.status_code}**\n\n"
-                            f"```\n{resp.text[:500]}\n```"
-                        )
-                except requests.exceptions.ConnectionError:
-                    st.warning(
-                        "⚠️  Could not reach the API backend at "
-                        f"`{API_BASE_URL}`. Start the server with:\n\n"
-                        "```bash\nuvicorn src.api:app --reload\n```"
-                    )
-                except requests.exceptions.Timeout:
-                    st.error("❌  Request timed out. The backend may be under load.")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — System Health
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab_health:
-
-    refresh_col, _ = st.columns([1, 5])
+    refresh_col, filter_col, _ = st.columns([1, 2, 4])
     with refresh_col:
         if st.button("↺  Refresh", type="secondary"):
             st.cache_data.clear()
+    with filter_col:
+        status_filter = st.selectbox(
+            "Filter by status",
+            ["monitoring", "ceiling_truncated", "expired_cancellation_passed", "rebooked", "— all —"],
+            label_visibility="collapsed",
+        )
 
-    # ── Metrics row ───────────────────────────────────────────────────────────
-    with st.spinner("Loading health metrics…"):
-        active_urls, ai_rescues, dlq_count = _fetch_health_metrics()
+    # ── Portfolio summary metrics ──────────────────────────────────────────────
+    with st.spinner("Loading metrics…"):
+        total_mon, expiring_soon, savings_detected = _fetch_summary_metrics()
 
-    st.markdown(
-        '<div class="sp-section">Live Metrics</div>',
-        unsafe_allow_html=True,
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        label="Active Monitored URLs",
-        value=f"{active_urls:,}",
-        delta="Across all jobs",
+    st.markdown('<div class="sp-section">Portfolio Summary</div>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    c1.metric(
+        "Bookings Under Monitoring",
+        f"{total_mon:,}",
+        delta="Active",
         delta_color="off",
-        help="Total number of distinct URLs currently being tracked in the extraction pipeline.",
+        help="Total bookings currently in 'monitoring' status.",
     )
-
-    col2.metric(
-        label="AI Fallback Rescues (30 Days)",
-        value=f"{ai_rescues:,}",
-        delta="DOM selectors may need updates" if ai_rescues > 0 else "All selectors healthy",
-        delta_color="inverse" if ai_rescues > 0 else "normal",
-        help=(
-            "Number of records where BeautifulSoup DOM extraction failed and "
-            "Gemini AI automatically recovered the data. High numbers indicate "
-            "competitor sites have changed their layout."
-        ),
+    c2.metric(
+        "Expiring Within 48 h",
+        f"{expiring_soon:,}",
+        delta="Urgent review required" if expiring_soon > 0 else "None critical",
+        delta_color="inverse" if expiring_soon > 0 else "normal",
+        help="Bookings whose cancellation deadline falls within the next 48 hours.",
     )
-
-    col3.metric(
-        label="Broken URLs (DLQ)",
-        value=f"{dlq_count:,}",
-        delta="Permanent failures → review required" if dlq_count > 0 else "No failures",
-        delta_color="inverse" if dlq_count > 0 else "normal",
-        help=(
-            "URLs that failed processing 3 consecutive times and were routed to "
-            "the Dead-Letter Queue. These require manual review — likely 404s or "
-            "permanently blocked endpoints."
-        ),
+    c3.metric(
+        "Savings Opportunities",
+        f"{savings_detected:,}",
+        delta="Price drops detected" if savings_detected > 0 else "No drops yet",
+        delta_color="normal" if savings_detected > 0 else "off",
+        help="Bookings where current_rate is below booked_rate.",
     )
 
     st.divider()
 
-    # ── DLQ table ─────────────────────────────────────────────────────────────
-    st.markdown(
-        '<div class="sp-section">Dead-Letter Queue — Broken Competitor Links</div>',
-        unsafe_allow_html=True,
-    )
+    # ── Live itineraries table ─────────────────────────────────────────────────
+    st.markdown('<div class="sp-section">Live Tracked Itineraries</div>', unsafe_allow_html=True)
 
-    st.caption(
-        "URLs below have failed **3 consecutive extraction attempts** and been "
-        "automatically quarantined. Review and either fix the URL or remove it "
-        "from your monitoring list."
-    )
+    chosen_status = None if status_filter == "— all —" else status_filter
+    with st.spinner("Fetching bookings…"):
+        bookings = _fetch_bookings(chosen_status)
 
-    with st.spinner("Fetching DLQ contents…"):
-        dlq_messages = _fetch_dlq_messages()
+    if not bookings:
+        st.info("No bookings found for the selected status filter.")
+    else:
+        rows = []
+        for b in bookings:
+            br = float(b["booked_rate"]) if b.get("booked_rate") is not None else None
+            cr = float(b["current_rate"]) if b.get("current_rate") is not None else None
+            rows.append({
+                "Booking ID":      b.get("booking_id", "—"),
+                "Guest Name":      b.get("client_name", "—"),
+                "Room / Class":    b.get("room_or_ticket_class", "—"),
+                "Booked Rate":     br,
+                "Current Rate":    cr,
+                "Current Savings": _savings_display(br, cr),
+                "Deadline":        _deadline_countdown(b["cancellation_deadline"])
+                                   if b.get("cancellation_deadline") else "—",
+                "Status":          b.get("status", "—"),
+                "Provider URL":    b.get("provider_url", "—"),
+            })
 
-    if dlq_messages:
-        df = _format_dlq_dataframe(dlq_messages)
-
+        df_monitor = pd.DataFrame(rows)
         st.dataframe(
-            df,
+            df_monitor,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "URL": st.column_config.LinkColumn(
-                    "URL",
-                    display_text="Open ↗",
-                    help="Click to open the failing URL",
-                ),
-                "Attempts": st.column_config.NumberColumn(
-                    "Attempts",
-                    format="%d / 3",
-                ),
-                "Browser?": st.column_config.TextColumn("Playwright?"),
-                "Failure Reason": st.column_config.TextColumn(
-                    "Failure Reason",
-                    width="large",
-                ),
+                "Booking ID":      st.column_config.TextColumn("Booking ID", width="medium"),
+                "Guest Name":      st.column_config.TextColumn("Guest Name", width="medium"),
+                "Room / Class":    st.column_config.TextColumn("Room / Class", width="medium"),
+                "Booked Rate":     st.column_config.NumberColumn("Booked Rate", format="$%.2f"),
+                "Current Rate":    st.column_config.NumberColumn("Current Rate", format="$%.2f"),
+                "Current Savings": st.column_config.TextColumn("Current Savings", width="medium"),
+                "Deadline":        st.column_config.TextColumn("Cancellation In", width="medium"),
+                "Status":          st.column_config.TextColumn("Status"),
+                "Provider URL":    st.column_config.LinkColumn("Provider URL", display_text="Open ↗"),
             },
         )
+        st.caption(f"Showing **{len(rows)}** booking(s). Data refreshes every 45 s.")
 
-        st.markdown(
-            f"**{len(dlq_messages)} URL(s) in quarantine.** "
-            "Each URL exhausted its 3 automatic retry attempts.",
-        )
 
-        with st.expander("📋  Raw DLQ Payload (debug)"):
-            st.json(dlq_messages)
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 2 — Add Booking
+# ══════════════════════════════════════════════════════════════════════════════
 
-    else:
-        st.success(
-            "✅  Dead-Letter Queue is empty — all monitoring targets are healthy "
-            "and responding successfully."
-        )
-
-    # ── Footer ────────────────────────────────────────────────────────────────
-    st.divider()
+with tab_add:
+    st.markdown('<div class="sp-section">Register Single Booking</div>', unsafe_allow_html=True)
     st.caption(
-        f"SignalPipe · Serverless Extraction Engine · "
-        f"Data refreshes every 60s · Last updated: "
-        f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+        "Enter the client's confirmed booking details. The engine will begin "
+        "monitoring the provider URL immediately after registration."
     )
+
+    with st.form("add_booking_form", clear_on_submit=True):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            f_booking_id  = st.text_input("Booking ID *", placeholder="HTL-2024-00123")
+            f_client_name = st.text_input("Client Name *", placeholder="Jane Smith")
+            f_booked_rate = st.number_input(
+                "Booked Rate (USD) *", min_value=0.0, step=10.0, format="%.2f"
+            )
+            f_threshold   = st.number_input(
+                "Savings Threshold (USD) *",
+                min_value=0.0, value=50.0, step=5.0, format="%.2f",
+                help="Minimum saving required to trigger a rebooking alert.",
+            )
+        with col_b:
+            f_provider_url = st.text_input(
+                "Provider URL *", placeholder="https://booking.com/hotel/..."
+            )
+            f_room_class   = st.text_input(
+                "Room / Ticket Class *", placeholder="Superior King, Economy, etc."
+            )
+            f_cancel_date  = st.date_input(
+                "Cancellation Deadline *",
+                min_value=datetime.now(timezone.utc).date(),
+                help="Last date the booking can be cancelled without penalty.",
+            )
+
+        add_submitted = st.form_submit_button(
+            "➕  Register Booking", type="primary", use_container_width=True
+        )
+
+    if add_submitted:
+        errors = []
+        if not f_booking_id.strip():
+            errors.append("Booking ID is required.")
+        if not f_client_name.strip():
+            errors.append("Client Name is required.")
+        if not f_provider_url.strip():
+            errors.append("Provider URL is required.")
+        if not f_room_class.strip():
+            errors.append("Room / Ticket Class is required.")
+        if f_booked_rate <= 0:
+            errors.append("Booked Rate must be greater than 0.")
+
+        if errors:
+            for e in errors:
+                st.error(e)
+        else:
+            from datetime import time as _dtime
+            deadline_dt = datetime.combine(f_cancel_date, _dtime.max).replace(
+                tzinfo=timezone.utc
+            )
+            payload = {
+                "booking_id":               f_booking_id.strip(),
+                "client_name":              f_client_name.strip(),
+                "provider_url":             f_provider_url.strip(),
+                "booked_rate":              float(f_booked_rate),
+                "current_rate":             None,
+                "cancellation_deadline":    deadline_dt.isoformat(),
+                "room_or_ticket_class":     f_room_class.strip(),
+                "status":                   "monitoring",
+                "target_savings_threshold": float(f_threshold),
+            }
+            with st.spinner("Registering booking…"):
+                try:
+                    resp = requests.post(
+                        f"{API_BASE_URL}/bookings", json=payload, timeout=10
+                    )
+                    if resp.status_code in (200, 201):
+                        st.success(
+                            f"✅ Booking **{f_booking_id.strip()}** registered for "
+                            f"**{f_client_name.strip()}**. Monitoring is now active."
+                        )
+                        st.cache_data.clear()
+                    else:
+                        st.error(
+                            f"❌ API returned **{resp.status_code}**\n\n"
+                            f"```\n{resp.text[:400]}\n```"
+                        )
+                except requests.exceptions.ConnectionError:
+                    st.warning(
+                        f"⚠️ Could not reach API at `{API_BASE_URL}`. "
+                        "Is the server running?"
+                    )
+                except requests.exceptions.Timeout:
+                    st.error("❌ Request timed out.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 3 — Batch Upload
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_batch:
+    st.markdown('<div class="sp-section">Batch Manifest Upload</div>', unsafe_allow_html=True)
+    st.caption(
+        "Upload a standard agency CSV manifest to register multiple bookings at once. "
+        "The engine validates every row before inserting into PostgreSQL."
+    )
+
+    with st.expander("📄  Required CSV Format", expanded=False):
+        sample_df = pd.DataFrame([{
+            "booking_id":               "HTL-2024-00123",
+            "client_name":              "Jane Smith",
+            "provider_url":             "https://booking.com/hotel/xyz",
+            "booked_rate":              850.00,
+            "room_or_ticket_class":     "Superior King",
+            "cancellation_deadline":    "2024-12-20",
+            "target_savings_threshold": 50.00,
+        }])
+        st.dataframe(sample_df, use_container_width=True, hide_index=True)
+        st.caption("`target_savings_threshold` is optional — defaults to **50.00** if omitted.")
+        st.download_button(
+            "⬇️  Download Sample CSV",
+            data=sample_df.to_csv(index=False),
+            file_name="signalpipe_manifest_sample.csv",
+            mime="text/csv",
+        )
+
+    REQUIRED_COLS = {
+        "booking_id", "client_name", "provider_url",
+        "booked_rate", "room_or_ticket_class", "cancellation_deadline",
+    }
+
+    uploaded = st.file_uploader(
+        "Drop your agency manifest CSV here",
+        type=["csv"],
+        help="UTF-8 encoded CSV. Maximum 500 rows per upload.",
+    )
+
+    if uploaded is not None:
+        try:
+            df_raw = pd.read_csv(uploaded)
+        except Exception as parse_err:
+            st.error(f"❌ Could not parse CSV: {parse_err}")
+            df_raw = None
+
+        if df_raw is not None:
+            df_raw.columns = df_raw.columns.str.strip().str.lower()
+            missing_cols = REQUIRED_COLS - set(df_raw.columns)
+
+            if missing_cols:
+                st.error(
+                    f"❌ Missing required columns: **{', '.join(sorted(missing_cols))}**"
+                )
+            else:
+                valid_rows: list[dict] = []
+                invalid_rows: list[dict] = []
+
+                for idx, row in df_raw.iterrows():
+                    row_errors: list[str] = []
+
+                    bid = str(row.get("booking_id", "")).strip()
+                    if not bid:
+                        row_errors.append("booking_id empty")
+
+                    client = str(row.get("client_name", "")).strip()
+                    if not client:
+                        row_errors.append("client_name empty")
+
+                    url = str(row.get("provider_url", "")).strip()
+                    if not url.startswith("http"):
+                        row_errors.append("provider_url invalid")
+
+                    try:
+                        rate = float(row["booked_rate"])
+                        if rate <= 0:
+                            raise ValueError
+                    except (ValueError, TypeError):
+                        row_errors.append("booked_rate must be > 0")
+                        rate = 0.0
+
+                    room_class = str(row.get("room_or_ticket_class", "")).strip()
+                    if not room_class:
+                        row_errors.append("room_or_ticket_class empty")
+
+                    deadline_iso: str | None = None
+                    try:
+                        dl = pd.to_datetime(row["cancellation_deadline"])
+                        deadline_iso = (
+                            dl.replace(hour=23, minute=59, second=59).isoformat()
+                            + "+00:00"
+                        )
+                    except Exception:
+                        row_errors.append("cancellation_deadline invalid date")
+
+                    try:
+                        threshold = (
+                            float(row["target_savings_threshold"])
+                            if "target_savings_threshold" in df_raw.columns
+                            and pd.notna(row.get("target_savings_threshold"))
+                            else 50.0
+                        )
+                    except (ValueError, TypeError):
+                        threshold = 50.0
+
+                    if row_errors:
+                        invalid_rows.append({
+                            "CSV row": int(idx) + 2,
+                            "Errors": "; ".join(row_errors),
+                        })
+                    else:
+                        valid_rows.append({
+                            "booking_id":               bid,
+                            "client_name":              client,
+                            "provider_url":             url,
+                            "booked_rate":              rate,
+                            "current_rate":             None,
+                            "cancellation_deadline":    deadline_iso,
+                            "room_or_ticket_class":     room_class,
+                            "status":                   "monitoring",
+                            "target_savings_threshold": threshold,
+                        })
+
+                # ── Validation summary ─────────────────────────────────────
+                st.markdown(
+                    f"**{len(df_raw)} rows parsed** — "
+                    f"✅ {len(valid_rows)} valid, "
+                    + (f"❌ {len(invalid_rows)} invalid" if invalid_rows else "✅ 0 invalid")
+                )
+
+                if invalid_rows:
+                    with st.expander(
+                        f"⚠️  {len(invalid_rows)} invalid row(s) — click to review"
+                    ):
+                        st.dataframe(
+                            pd.DataFrame(invalid_rows),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                if valid_rows:
+                    st.markdown(
+                        '<div class="sp-section">Preview (first 5 valid rows)</div>',
+                        unsafe_allow_html=True,
+                    )
+                    preview_cols = [
+                        "booking_id", "client_name", "room_or_ticket_class",
+                        "booked_rate", "cancellation_deadline",
+                    ]
+                    st.dataframe(
+                        pd.DataFrame(valid_rows)[preview_cols].head(5),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    if st.button(
+                        f"🚀  Insert {len(valid_rows)} Booking(s) into PostgreSQL",
+                        type="primary",
+                    ):
+                        progress = st.progress(0, text="Starting batch insert…")
+                        inserted, failed = 0, 0
+
+                        for i, row_payload in enumerate(valid_rows):
+                            try:
+                                resp = requests.post(
+                                    f"{API_BASE_URL}/bookings",
+                                    json=row_payload,
+                                    timeout=10,
+                                )
+                                if resp.status_code in (200, 201):
+                                    inserted += 1
+                                else:
+                                    failed += 1
+                            except Exception:
+                                failed += 1
+
+                            progress.progress(
+                                (i + 1) / len(valid_rows),
+                                text=f"Inserting… {i + 1} / {len(valid_rows)}",
+                            )
+
+                        progress.empty()
+
+                        if failed == 0:
+                            st.success(
+                                f"✅ All **{inserted}** booking(s) registered successfully."
+                            )
+                            st.cache_data.clear()
+                        else:
+                            st.warning(
+                                f"⚠️ Completed with issues: **{inserted}** inserted, "
+                                f"**{failed}** failed. Check the API logs for details."
+                            )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Footer
+# ─────────────────────────────────────────────────────────────────────────────
+
+st.divider()
+st.caption(
+    f"SignalPipe · Travel Price Protection Engine · "
+    f"Data refreshes every 45 s · Last updated: "
+    f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
+)
