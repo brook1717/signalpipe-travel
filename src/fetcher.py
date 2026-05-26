@@ -1,3 +1,4 @@
+import os
 import random
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
@@ -8,6 +9,28 @@ from urllib.parse import urlparse
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+_PROXY_URL: str | None = os.environ.get("PROXY_URL") or None
+
+
+def _build_proxy_config(proxy_url: str) -> dict:
+    """Parse a proxy URL (with optional embedded credentials) into a Playwright proxy dict.
+
+    Playwright requires credentials as separate keys; embedding them in the
+    server URL string is silently ignored.  This helper handles both forms:
+
+        http://proxy.example.com:8000              → {"server": ...}
+        http://user:pass@proxy.example.com:8000    → {"server": ..., "username": ..., "password": ...}
+    """
+    parsed = urlparse(proxy_url)
+    server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+    config: dict = {"server": server}
+    if parsed.username:
+        config["username"] = parsed.username
+    if parsed.password:
+        config["password"] = parsed.password
+    return config
+
 
 DEFAULT_TIMEOUT = 30
 DEFAULT_MAX_PAGES = 50
@@ -159,8 +182,15 @@ class BrowserFetcher:
     """Stealth browser fetcher using Playwright to bypass Cloudflare and JS-heavy pages."""
 
     def __init__(self, proxy: str | None = None, timeout: int = DEFAULT_TIMEOUT * 1000):
-        self.proxy = proxy
+        self.proxy: str | None = proxy or _PROXY_URL
         self.timeout = timeout
+        if self.proxy:
+            parsed = urlparse(self.proxy)
+            logger.info(
+                "BrowserFetcher: residential proxy active — %s://%s:%s (auth=%s)",
+                parsed.scheme, parsed.hostname, parsed.port,
+                "yes" if parsed.username else "no",
+            )
         self._cookie_jar: dict[str, dict] = {}
 
     def fetch_html(self, url: str) -> str:
@@ -191,8 +221,6 @@ class BrowserFetcher:
         )
 
         launch_options: dict = {"headless": True}
-        if self.proxy:
-            launch_options["proxy"] = {"server": self.proxy}
 
         playwright = sync_playwright().start()
         browser = None
@@ -204,6 +232,9 @@ class BrowserFetcher:
                 "viewport": viewport,
                 "extra_http_headers": {"Accept-Language": _ACCEPT_LANGUAGE},
             }
+            if self.proxy:
+                context_options["proxy"] = _build_proxy_config(self.proxy)
+                logger.debug("BrowserFetcher: proxy injected into context for %s", url)
             saved_state = self._cookie_jar.get(domain)
             if saved_state:
                 context_options["storage_state"] = saved_state
