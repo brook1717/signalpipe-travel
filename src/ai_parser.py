@@ -108,8 +108,18 @@ PAGE CONTENT:
 
 
 def _html_to_markdown(html: str) -> str:
-    """Convert raw HTML to Markdown to drastically reduce token usage."""
-    markdown = md(html, strip=["img", "script", "style", "nav", "footer", "header"])
+    """Convert raw HTML to Markdown to drastically reduce token usage.
+
+    Uses BeautifulSoup to fully decompose noisy elements (script, style,
+    nav, footer, header) before conversion — markdownify's strip= parameter
+    removes the tags but leaves their text content in the output.
+    """
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup.find_all(["script", "style", "nav", "footer", "header"]):
+        tag.decompose()
+    clean_html = str(soup)
+    markdown = md(clean_html, strip=["img"])
     lines = [line.strip() for line in markdown.splitlines() if line.strip()]
     return "\n".join(lines)
 
@@ -181,7 +191,7 @@ def extract_with_llm(
     )
 
     client = genai.Client(api_key=GEMINI_API_KEY)
-    instructor_client = instructor.from_genai(client, mode=instructor.Mode.GENAI_JSON)
+    instructor_client = instructor.from_genai(client, mode=instructor.Mode.GENAI_STRUCTURED_OUTPUTS)
 
     try:
         result: T = instructor_client.chat.completions.create(

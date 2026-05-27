@@ -1,0 +1,310 @@
+﻿python : 2026-05-27 11:02:49 - src.db.database - INFO - Travel price protection tables initialised.
+At line:1 char:32
++ ... v:PYTHONIOENCODING="utf-8"; python -m src.seed_test_data 2>&1 | Out-F ...
++                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-05-27 11:0...es initialised.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026-05-27 11:02:50 - src.db.crud - INFO - Upserted booking SINGLE-001 (client=Alice Wanderer, status=monitoring, booked=$499.00, current=N/A)
+2026-05-27 11:02:50 - src.db.crud - INFO - Upserted booking BATCH-001 (client=Dr. Sarah Chen, status=monitoring, booked=$450.00, current=N/A)
+2026-05-27 11:02:50 - src.db.crud - INFO - Upserted booking BATCH-002 (client=James Whitfield, status=monitoring, booked=$280.75, current=N/A)
+2026-05-27 11:02:50 - src.db.crud - INFO - Upserted booking BATCH-003 (client=Priya Nair, status=monitoring, booked=$1250.00, current=N/A)
+2026-05-27 11:02:50 - src.db.crud - INFO - Upserted booking BATCH-001 (client=Dr. Sarah Chen, status=monitoring, booked=$450.00, current=N/A)
+2026-05-27 11:02:50 - src.db.crud - INFO - Upserted booking EXPIRED-001 (client=Test Expired Client, status=monitoring, booked=$500.00, current=N/A)
+2026-05-27 11:02:50 - src.db.crud - INFO - [DEADLINE LAPSED] booking_id=EXPIRED-001 provider_url=https://www.expedia.com/hotels/booking/expired-001 cancellation_deadline passed ΓÇö status ΓåÆ 
+expired_cancellation_passed, scrape execution bypassed.
+2026-05-27 11:02:50 - src.db.crud - INFO - expire_lapsed_bookings: https://www.expedia.com/hotels/booking/expired-001 ΓÇö 1 expired, 0 still active.
+2026-05-27 11:02:50 - src.db.crud - WARNING - update_rate_by_provider_url: no active bookings found for https://www.expedia.com/hotels/booking/expired-001
+Exception closing connection <AdaptedConnection <asyncpg.connection.Connection object at 0x00000231555E5B80>>
+Traceback (most recent call last):
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\pool\base.py", line 375, in _close_connection
+    self._dialect.do_close(connection)
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\default.py", line 721, in do_close
+    dbapi_connection.close()
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 903, in close
+    self.await_(self._connection.close())
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 123, in await_only
+    raise exc.MissingGreenlet(
+sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: 
+https://sqlalche.me/e/20/xd2s)
+2026-05-27 11:02:58 - src.ai_parser - ERROR - GEMINI_API_KEY is not set. Cannot use LLM extraction.
+2026-05-27 11:02:58 - src.ai_parser - INFO - LLM extraction: HTML=727 chars ΓåÆ Markdown=233 chars (room_class='Deluxe King, Free Breakfast')
+2026-05-27 11:02:58 - src.ai_parser - INFO - LLM extraction complete: 1 item(s) passed validation.
+2026-05-27 11:03:01 - src.db.crud - INFO - [SAVINGS ALERT] booking=DELTA-ALERT-001 client=Carlos Rivera booked=$450.00 current=$295.00 savings=$155.00 (34.44%)
+2026-05-27 11:03:01 - src.db.crud - INFO - Upserted booking DELTA-ALERT-001 (client=Carlos Rivera, status=monitoring, booked=$450.00, current=$295.00)
+2026-05-27 11:03:02 - src.db.crud - INFO - [DELTA SILENT] booking=DELTA-SILENT-001 booked=$620.00 observed=$595.00 savings=$25.00 threshold=$50.00 status=monitoring ΓÇö alert suppressed, 
+snapshot staged.
+2026-05-27 11:03:02 - src.db.crud - INFO - Upserted booking DELTA-SILENT-001 (client=Nina Okonkwo, status=monitoring, booked=$620.00, current=$595.00)
+2026-05-27 11:03:02 - src.db.crud - INFO - [DELTA SILENT] booking=DELTA-RISE-001 booked=$280.00 observed=$310.00 savings=$-30.00 threshold=$50.00 status=monitoring ΓÇö alert suppressed, 
+snapshot staged.
+2026-05-27 11:03:02 - src.db.crud - INFO - Upserted booking DELTA-RISE-001 (client=Tom Hartley, status=monitoring, booked=$280.00, current=$310.00)
+Exception closing connection <AdaptedConnection <asyncpg.connection.Connection object at 0x000002315AA6DC70>>
+Traceback (most recent call last):
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\pool\base.py", line 375, in _close_connection
+    self._dialect.do_close(connection)
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\default.py", line 721, in do_close
+    dbapi_connection.close()
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 903, in close
+    self.await_(self._connection.close())
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 123, in await_only
+    raise exc.MissingGreenlet(
+sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: 
+https://sqlalche.me/e/20/xd2s)
+2026-05-27 11:03:02 - src.db.crud - INFO - [SAVINGS ALERT] booking=RT-001 client=Elena Marchetti booked=$800.00 current=$650.00 savings=$150.00 (18.75%)
+2026-05-27 11:03:02 - src.db.crud - INFO - Upserted booking RT-001 (client=Elena Marchetti, status=monitoring, booked=$800.00, current=$650.00)
+2026-05-27 11:03:02 - src.delivery - INFO - Webhook delivery: sending 1 record(s) to https://hooks.zapier.com/hooks/catch/signalpipe/travel-alerts/
+2026-05-27 11:03:02 - src.delivery - INFO - Webhook delivery successful to https://hooks.zapier.com/hooks/catch/signalpipe/travel-alerts/.
+2026-05-27 11:03:02 - src.db.crud - INFO - Status updated for booking RT-001: ΓåÆ rebooked
+Exception closing connection <AdaptedConnection <asyncpg.connection.Connection object at 0x000002315AA6DA90>>
+Traceback (most recent call last):
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\pool\base.py", line 375, in _close_connection
+    self._dialect.do_close(connection)
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\engine\default.py", line 721, in do_close
+    dbapi_connection.close()
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 903, in close
+    self.await_(self._connection.close())
+  File "C:\Users\hp\AppData\Local\Programs\Python\Python312\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 123, in await_only
+    raise exc.MissingGreenlet(
+sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: 
+https://sqlalche.me/e/20/xd2s)
+
+[1m[96mΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ[0m
+[1m[96m  SignalPipe ┬╖ B2B Travel Price Protection ΓÇö Validation Rig[0m
+[96m  2026-05-27 08:02 UTC[0m
+[1m[96mΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ[0m
+[96m  ┬╖ INFO[0m  Test fixtures purged ΓÇö starting clean run.
+
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m[1m  STEP 0 ┬╖ DB Connectivity & Schema Validation[0m
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m  ┬╖ INFO[0m  init_db() completed ΓÇö DDL applied via SQLAlchemy metadata.create_all.
+[92m[1m  Γ£ô PASS[0m  PostgreSQL connection established
+[92m[1m  Γ£ô PASS[0m  Table 'active_bookings' exists
+[92m[1m  Γ£ô PASS[0m  Table 'rate_snapshots' exists
+           tables present: ['scrape_jobs', 'scraped_records', 'active_bookings',
+           'rate_snapshots']
+[92m[1m  Γ£ô PASS[0m  active_bookings has all required columns
+           all columns present
+
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m[1m  STEP 1 ┬╖ Booking Insertion ΓÇö Single Manual Input + Batch Array[0m
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m  ┬╖ INFO[0m  Inserting single booking SINGLE-001ΓÇª
+[92m[1m  Γ£ô PASS[0m  Single booking SINGLE-001 inserted and retrieved
+[92m[1m  Γ£ô PASS[0m  Single booking booked_rate stored correctly ($499.00)
+           stored=499.0000
+[92m[1m  Γ£ô PASS[0m  Single booking status defaults to 'monitoring'
+           stored status=monitoring
+[96m  ┬╖ INFO[0m  Inserting batch of 3 bookingsΓÇª
+[92m[1m  Γ£ô PASS[0m  All 3 batch bookings inserted
+           found=['BATCH-001', 'BATCH-002', 'BATCH-003']
+[92m[1m  Γ£ô PASS[0m  Decimal precision preserved for BATCH-002 ($280.75)
+           stored=280.7500
+[92m[1m  Γ£ô PASS[0m  Re-upsert of BATCH-001 created no duplicate row
+           expected=4, actual=4
+
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m[1m  STEP 2 ┬╖ Cancellation Safety Cutoff ΓÇö Expired Deadline Bypass[0m
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m  ┬╖ INFO[0m  Inserting EXPIRED-001 with past deadline: 2023-01-01T00:00:00+00:00
+[92m[1m  Γ£ô PASS[0m  EXPIRED-001 initially registered with status 'monitoring'
+           status=monitoring
+[92m[1m  Γ£ô PASS[0m  expire_lapsed_bookings returns 0 active bookings for expired URL
+           active_remaining=0
+[92m[1m  Γ£ô PASS[0m  EXPIRED-001 status transitioned to 'expired_cancellation_passed'
+           stored status=expired_cancellation_passed
+[92m[1m  Γ£ô PASS[0m  Rate update skips expired booking ΓÇö update_rate_by_provider_url returns []
+           bookings updated: 0 (expected 0)
+
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m[1m  STEP 4 ┬╖ Gemini Parser Resilience[0m
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m  ┬╖ INFO[0m  Sub-step A: HTML ΓåÆ Markdown stripping
+[92m[1m  Γ£ô PASS[0m  HTMLΓåÆMarkdown output is a non-empty string
+           output length: 233 chars
+[92m[1m  Γ£ô PASS[0m  nav / footer / script tags stripped from Markdown
+           first 200 chars: 'Marriott Deluxe King - Rate Details\nDeluxe King Room
+           with Free
+           Breakfast\n====================================\n$685.00\nIncludes all
+           taxes and resort fees\nOnly 2 rooms left at this rate!\nCurrency: USD |'
+[92m[1m  Γ£ô PASS[0m  Price text ($685) preserved in Markdown output
+           snippet: 'Marriott Deluxe King - Rate Details\nDeluxe King Room with
+           Free Breakfast\n====================================\n$685.00\nIncludes
+           all taxes and resort fees\nOnly 2 rooms left at this rate!\nCurrency:
+           USD | 3 nights | Check-in Jul 15, 2026'
+[96m  ┬╖ INFO[0m  Sub-step B: GEMINI_API_KEY empty ΓåÆ graceful empty-list return
+[92m[1m  Γ£ô PASS[0m  extract_with_llm returns [] when GEMINI_API_KEY is empty
+           returned: []
+[96m  ┬╖ INFO[0m  Sub-step C: mocked Gemini extraction via instructor patch
+[92m[1m  Γ£ô PASS[0m  Mocked extract_with_llm returns exactly 1 result
+           results count: 1
+[92m[1m  Γ£ô PASS[0m  Extracted total_price is $685.00
+           total_price=685.0
+[92m[1m  Γ£ô PASS[0m  Extracted currency is valid 3-letter code 'USD'
+           currency=USD
+[92m[1m  Γ£ô PASS[0m  Extracted inventory_status is valid enum value 'limited'
+           inventory_status=limited
+[96m  ┬╖ INFO[0m  Sub-step D: _validate_extractions ΓÇö valid passes, invalid rejected
+[92m[1m  Γ£ô PASS[0m  _validate_extractions accepts a structurally valid extraction
+           passed count: 1
+[92m[1m  Γ£ô PASS[0m  TravelBookingExtraction rejects negative total_price
+
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m[1m  SQS STEPS  (moto in-process mock ΓÇö no real AWS needed)[0m
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m  ┬╖ INFO[0m  Initialising mock_aws contextΓÇª
+[96m  ┬╖ INFO[0m  [moto] Alert queue URL: https://sqs.us-east-1.amazonaws.com/123456789012/price-alerts
+
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m[1m  STEP 3 ┬╖ Delta Engine ΓÇö Alert Trigger & Suppression[0m
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m  ┬╖ INFO[0m  Sub-step A: $155 price drop ΓÇö threshold CLEARED (DELTA-ALERT-001)
+[92m[1m  Γ£ô PASS[0m  Exactly 1 SQS alert enqueued after threshold-clearing drop
+           messages in queue: 1
+[92m[1m  Γ£ô PASS[0m  Alert event is 'price_protection_savings'
+           event=price_protection_savings
+[92m[1m  Γ£ô PASS[0m  savings_amount ($155.00) ΓëÑ threshold ($50.00)
+           savings_amount=155.0
+[92m[1m  Γ£ô PASS[0m  Alert payload contains 'message' field
+[92m[1m  Γ£ô PASS[0m  Markdown message opens with ≡ƒÜ¿ header
+           first 60 chars: '≡ƒÜ¿ *PRICE PROTECTION ALERT: FINANCIAL DELTA DETECTED*
+           ≡ƒÜ¿\n\n*Boo'
+[92m[1m  Γ£ô PASS[0m  Markdown message contains booking ref DELTA-ALERT-001
+[92m[1m  Γ£ô PASS[0m  Markdown message contains 'Save $155.00'
+           savings line: 'ial Breakdown:* Originally booked at $450.00, current
+           available market rate is $295.00.\n\n*Actionable Profit:* Save $155.00
+           immediately by re-booking.\n'
+[96m  ┬╖ INFO[0m    Markdown alert preview:
+≡ƒÜ¿ *PRICE PROTECTION ALERT: FINANCIAL DELTA DETECTED* ≡ƒÜ¿
+
+*Booking Ref:* DELTA-ALERT-001
+*Client Name:* Carlos Rivera
+*Class:* Ocean View Suite
+
+*Financial Breakdown:* Originally booked at $450.00, current available market rate is $295.00.
+
+*Actionable Profit:* Save $155.00 immediately by re-booking.
+
+*Time Left to Act:* 583 days 15 hours remaining
+
+*Target Provider Link:* https://www.hotels.com/delta/alert-001
+[92m[1m  Γ£ô PASS[0m  rate_snapshots row created for DELTA-ALERT-001
+[92m[1m  Γ£ô PASS[0m  RateSnapshot.threshold_met=True
+           threshold_met=True
+[92m[1m  Γ£ô PASS[0m  RateSnapshot.alert_triggered=True
+           alert_triggered=True
+[96m  ┬╖ INFO[0m  Sub-step B: $25 price drop ΓÇö threshold NOT cleared (DELTA-SILENT-001)
+[92m[1m  Γ£ô PASS[0m  Queue empty after sub-threshold drop ($25 < $50)
+           messages: 0 (expected 0)
+[92m[1m  Γ£ô PASS[0m  RateSnapshot.threshold_met=False for sub-threshold drop
+           threshold_met=False
+[92m[1m  Γ£ô PASS[0m  RateSnapshot.alert_triggered=False for sub-threshold drop
+           alert_triggered=False
+[96m  ┬╖ INFO[0m  Sub-step C: price RISE ΓÇö alert must be suppressed (DELTA-RISE-001)
+[92m[1m  Γ£ô PASS[0m  Queue empty after price RISE ($280 ΓåÆ $310)
+           messages: 0 (expected 0)
+
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m[1m  STEP 5 ┬╖ Full Round-Trip ΓÇö Queue Pickup ΓåÆ DB Update ΓåÆ Webhook Dispatch[0m
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m  ┬╖ INFO[0m  Registering RT-001: booked=$800.00 ΓåÆ current=$650.00
+[92m[1m  Γ£ô PASS[0m  RT-001 alert enqueued to SQS and polled (1 message)
+           queue depth: 1
+[92m[1m  Γ£ô PASS[0m  Polled SQS payload contains 'message' field
+[92m[1m  Γ£ô PASS[0m  Message starts with ≡ƒÜ¿ PRICE PROTECTION ALERT header
+           first 60 chars: '≡ƒÜ¿ *PRICE PROTECTION ALERT: FINANCIAL DELTA DETECTED*
+           ≡ƒÜ¿\n\n*Boo'
+[92m[1m  Γ£ô PASS[0m  Message contains Booking Ref RT-001
+           first 200 chars: '≡ƒÜ¿ *PRICE PROTECTION ALERT: FINANCIAL DELTA DETECTED*
+           ≡ƒÜ¿\n\n*Booking Ref:* RT-001\n*Client Name:* Elena Marchetti\n*Class:*
+           Deluxe Double, City View\n\n*Financial Breakdown:* Originally booked at
+           $800.00, cur'
+[92m[1m  Γ£ô PASS[0m  Message contains 'Save $150.00'
+           savings section: 'cial Breakdown:* Originally booked at $800.00, current
+           available market rate is $650.00.\n\n*Actionable Profit:* Save $150.00
+           immediately by re-booking.\n\n*Time Left to Act:* 583 days 15 hours
+           remaining\n'
+[92m[1m  Γ£ô PASS[0m  Message contains provider URL
+           url: https://www.hilton.com/roundtrip/rt-001
+[96m  ┬╖ INFO[0m    Markdown message preview:
+≡ƒÜ¿ *PRICE PROTECTION ALERT: FINANCIAL DELTA DETECTED* ≡ƒÜ¿
+
+*Booking Ref:* RT-001
+*Client Name:* Elena Marchetti
+*Class:* Deluxe Double, City View
+
+*Financial Breakdown:* Originally booked at $800.00, current available market rate is $650.00.
+
+*Actionable Profit:* Save $150.00 immediately by re-booking.
+
+*Time Left to Act:* 583 days 15 hours remaining
+
+*Target Provider Link:* https://www.hilton.com/roundtrip/rt-001
+[96m  ┬╖ INFO[0m  Dispatching via WebhookDeliverer (requests.post mocked)ΓÇª
+[92m[1m  Γ£ô PASS[0m  requests.post called exactly once for webhook dispatch
+           call_count=1
+[92m[1m  Γ£ô PASS[0m  WebhookDeliverer.deliver() returned True (success)
+           returned: True
+[92m[1m  Γ£ô PASS[0m  Final DB status for RT-001 is 'rebooked'
+           stored status=rebooked
+[92m[1m  Γ£ô PASS[0m  Final DB current_rate for RT-001 is $650.00
+           current_rate=650.0000
+[92m[1m  Γ£ô PASS[0m  SQS queue empty after message acknowledgement
+           remaining messages: 0
+[96m  ┬╖ INFO[0m  Round-trip complete Γ£ô
+
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+[96m[1m  TEST SUMMARY[0m
+[96m[1mΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ[0m
+  [92mΓ£ô[0m  PostgreSQL connection established
+  [92mΓ£ô[0m  Table 'active_bookings' exists
+  [92mΓ£ô[0m  Table 'rate_snapshots' exists
+  [92mΓ£ô[0m  active_bookings has all required columns
+  [92mΓ£ô[0m  Single booking SINGLE-001 inserted and retrieved
+  [92mΓ£ô[0m  Single booking booked_rate stored correctly ($499.00)
+  [92mΓ£ô[0m  Single booking status defaults to 'monitoring'
+  [92mΓ£ô[0m  All 3 batch bookings inserted
+  [92mΓ£ô[0m  Decimal precision preserved for BATCH-002 ($280.75)
+  [92mΓ£ô[0m  Re-upsert of BATCH-001 created no duplicate row
+  [92mΓ£ô[0m  EXPIRED-001 initially registered with status 'monitoring'
+  [92mΓ£ô[0m  expire_lapsed_bookings returns 0 active bookings for expired URL
+  [92mΓ£ô[0m  EXPIRED-001 status transitioned to 'expired_cancellation_passed'
+  [92mΓ£ô[0m  Rate update skips expired booking ΓÇö update_rate_by_provider_url returns []
+  [92mΓ£ô[0m  HTMLΓåÆMarkdown output is a non-empty string
+  [92mΓ£ô[0m  nav / footer / script tags stripped from Markdown
+  [92mΓ£ô[0m  Price text ($685) preserved in Markdown output
+  [92mΓ£ô[0m  extract_with_llm returns [] when GEMINI_API_KEY is empty
+  [92mΓ£ô[0m  Mocked extract_with_llm returns exactly 1 result
+  [92mΓ£ô[0m  Extracted total_price is $685.00
+  [92mΓ£ô[0m  Extracted currency is valid 3-letter code 'USD'
+  [92mΓ£ô[0m  Extracted inventory_status is valid enum value 'limited'
+  [92mΓ£ô[0m  _validate_extractions accepts a structurally valid extraction
+  [92mΓ£ô[0m  TravelBookingExtraction rejects negative total_price
+  [92mΓ£ô[0m  Exactly 1 SQS alert enqueued after threshold-clearing drop
+  [92mΓ£ô[0m  Alert event is 'price_protection_savings'
+  [92mΓ£ô[0m  savings_amount ($155.00) ΓëÑ threshold ($50.00)
+  [92mΓ£ô[0m  Alert payload contains 'message' field
+  [92mΓ£ô[0m  Markdown message opens with ≡ƒÜ¿ header
+  [92mΓ£ô[0m  Markdown message contains booking ref DELTA-ALERT-001
+  [92mΓ£ô[0m  Markdown message contains 'Save $155.00'
+  [92mΓ£ô[0m  rate_snapshots row created for DELTA-ALERT-001
+  [92mΓ£ô[0m  RateSnapshot.threshold_met=True
+  [92mΓ£ô[0m  RateSnapshot.alert_triggered=True
+  [92mΓ£ô[0m  Queue empty after sub-threshold drop ($25 < $50)
+  [92mΓ£ô[0m  RateSnapshot.threshold_met=False for sub-threshold drop
+  [92mΓ£ô[0m  RateSnapshot.alert_triggered=False for sub-threshold drop
+  [92mΓ£ô[0m  Queue empty after price RISE ($280 ΓåÆ $310)
+  [92mΓ£ô[0m  RT-001 alert enqueued to SQS and polled (1 message)
+  [92mΓ£ô[0m  Polled SQS payload contains 'message' field
+  [92mΓ£ô[0m  Message starts with ≡ƒÜ¿ PRICE PROTECTION ALERT header
+  [92mΓ£ô[0m  Message contains Booking Ref RT-001
+  [92mΓ£ô[0m  Message contains 'Save $150.00'
+  [92mΓ£ô[0m  Message contains provider URL
+  [92mΓ£ô[0m  requests.post called exactly once for webhook dispatch
+  [92mΓ£ô[0m  WebhookDeliverer.deliver() returned True (success)
+  [92mΓ£ô[0m  Final DB status for RT-001 is 'rebooked'
+  [92mΓ£ô[0m  Final DB current_rate for RT-001 is $650.00
+  [92mΓ£ô[0m  SQS queue empty after message acknowledgement
+
+[92m[1m  All 49 checks passed.[0m
+

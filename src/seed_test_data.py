@@ -227,6 +227,38 @@ ROUNDTRIP_BOOKING = {
 }
 
 
+# All booking IDs written by this rig — used for cleanup at start of each run
+_TEST_BOOKING_IDS = [
+    "SINGLE-001",
+    "BATCH-001", "BATCH-002", "BATCH-003",
+    "EXPIRED-001",
+    "DELTA-ALERT-001", "DELTA-SILENT-001", "DELTA-RISE-001",
+    "RT-001",
+]
+
+
+async def _cleanup_test_data() -> None:
+    """Delete all rows written by previous runs of this rig.
+
+    Ensures every run starts with a clean slate so RateSnapshot's
+    append-only log doesn't accumulate stale rows that break
+    scalar_one_or_none() assertions.
+    """
+    from src.db.database import async_session
+    from src.db.models import ActiveBooking, RateSnapshot
+    from sqlalchemy import delete
+
+    async with async_session() as session:
+        await session.execute(
+            delete(RateSnapshot).where(RateSnapshot.booking_id.in_(_TEST_BOOKING_IDS))
+        )
+        await session.execute(
+            delete(ActiveBooking).where(ActiveBooking.booking_id.in_(_TEST_BOOKING_IDS))
+        )
+        await session.commit()
+    info("Test fixtures purged — starting clean run.")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Engine lifecycle helper
 # ─────────────────────────────────────────────────────────────────────────────
@@ -560,7 +592,10 @@ async def step_3_delta_engine(alert_queue_url: str, sqs_client) -> None:
 
     async with async_session() as session:
         snap = (await session.execute(
-            select(RateSnapshot).where(RateSnapshot.booking_id == bk["booking_id"])
+            select(RateSnapshot)
+            .where(RateSnapshot.booking_id == bk["booking_id"])
+            .order_by(RateSnapshot.id.desc())
+            .limit(1)
         )).scalar_one_or_none()
 
     check("rate_snapshots row created for DELTA-ALERT-001", snap is not None)
@@ -606,7 +641,10 @@ async def step_3_delta_engine(alert_queue_url: str, sqs_client) -> None:
 
     async with async_session() as session:
         snap_b = (await session.execute(
-            select(RateSnapshot).where(RateSnapshot.booking_id == bk["booking_id"])
+            select(RateSnapshot)
+            .where(RateSnapshot.booking_id == bk["booking_id"])
+            .order_by(RateSnapshot.id.desc())
+            .limit(1)
         )).scalar_one_or_none()
     if snap_b:
         check(
@@ -720,6 +758,7 @@ def step_4_gemini_parser() -> None:
             patch("src.ai_parser.GEMINI_API_KEY", "mock-api-key-for-test"),
             patch("src.ai_parser.genai.Client"),
             patch("src.ai_parser.instructor.from_genai") as mock_from_genai,
+            patch("src.ai_parser.instructor.Mode"),
         ):
             mock_client = MagicMock()
             mock_from_genai.return_value = mock_client
@@ -921,6 +960,7 @@ async def step_5_round_trip(alert_queue_url: str, sqs_client) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _run_db_only_steps() -> bool:
+    await _cleanup_test_data()
     ok = await step_0_db_connectivity()
     if not ok:
         warn("Skipping Steps 1 & 2 — fix the DB connection first.")
